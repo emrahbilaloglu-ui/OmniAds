@@ -1,10 +1,14 @@
 import { FENCED_TABLES, type DbGrowthFenceDecision } from "./db-growth-fence";
 import { NATIVE_REUSABLE_HEAP_TABLE } from "./native-reusable-heap";
+import { NATIVE_ARCHIVE_ROOT_ENCODING } from "../creative-decision-engine/native-archive-root-codec";
+import { NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT } from "../creative-decision-engine/native-historical-archive";
 
 /** Maintenance is a separate executor class. This never changes business
  * admission, the DB budget, provider flags or the emergency override. DELETE
  * and ordinary VACUUM still consume WAL/VM/FSM space; they are not zero-I/O. */
 export const NATIVE_STORAGE_MAINTENANCE_CONTRACT = "native-storage-maintenance-admission.v1" as const;
+export const COMPACT_NATIVE_STORAGE_MAINTENANCE_CONTRACT = "native-storage-maintenance-admission.v2" as const;
+export const COMPACT_NATIVE_STORAGE_SCOPE = "native-cold-whole-generation.v1" as const;
 export const NATIVE_STORAGE_OPERATIONS = ["read-original", "publish-original", "activate-root",
   "retire-original", "vacuum-main", "vacuum-toast"] as const;
 export type NativeStorageOperation = typeof NATIVE_STORAGE_OPERATIONS[number];
@@ -42,12 +46,33 @@ const bytes = (v: number) => Number.isSafeInteger(v) && v >= 0;
 const fresh = (v: string, now: number) => Number.isFinite(Date.parse(v)) &&
   Date.parse(v) <= now && now - Date.parse(v) <= MAX_AGE_MS;
 
-export function assessNativeStorageMaintenanceAdmission(input: {
+type MaintenanceInput = {
   business: Readonly<DbGrowthFenceDecision>;
   evidence: Readonly<NativeStorageMaintenanceEvidence>;
   expectedDatabaseBudgetBytes: number;
   nowMs: number;
-}) {
+};
+export function assessNativeStorageMaintenanceAdmission(input:MaintenanceInput) {
+  return assessMaintenance(input,1134);
+}
+export function assessCompactNativeStorageMaintenanceAdmission(input:Omit<MaintenanceInput,"evidence">&{
+  evidence:NativeStorageMaintenanceEvidence&{scopeContract:typeof COMPACT_NATIVE_STORAGE_SCOPE;
+    archiveMetadataEncoding:typeof NATIVE_ARCHIVE_ROOT_ENCODING;originalProofSha256:string;
+    archiveObjectLayout:typeof NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT;
+    replicaVolume:{observedAt:string;availableBytes:number;minimumFreeBytes:number};
+  };
+}){
+  const r=assessMaintenance(input,3200),e=input.evidence,replica=e.replicaVolume,issues=[...r.issues];
+  if(e.scopeContract!==COMPACT_NATIVE_STORAGE_SCOPE||e.archiveMetadataEncoding!==NATIVE_ARCHIVE_ROOT_ENCODING||
+    e.archiveObjectLayout!==NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT||
+    !digest(e.originalProofSha256))issues.push("compact_generation_scope");
+  if(!e.appVolume||e.appVolume.minimumFreeBytes<8*1024**3)issues.push("compact_app_reserve");
+  if(!replica||!fresh(replica.observedAt,input.nowMs)||!bytes(replica.availableBytes)||!bytes(replica.minimumFreeBytes)||
+    replica.minimumFreeBytes<16*1024**3||replica.availableBytes<replica.minimumFreeBytes+RESERVE)
+    issues.push("replica_physical_reserve");
+  return {...r,contract:COMPACT_NATIVE_STORAGE_MAINTENANCE_CONTRACT,issues,admitted:issues.length===0};
+}
+function assessMaintenance(input:MaintenanceInput,originalLimit:1134|3200) {
   const { business: b, evidence: e, nowMs: now } = input;
   const issues: string[] = [];
   // Consume the same aggregate measurement as D170's business fence. Raw
@@ -93,7 +118,7 @@ export function assessNativeStorageMaintenanceAdmission(input: {
       !digest(e.actualSourceReviewSha256) || e.sourceMatches !== true ||
       e.exactRolesAndReaderRootMatch !== true || e.unknownDatabaseConsumers !== 0)
     issues.push("exact_reviewed_operation_required");
-  if (!Number.isInteger(e.originalRows) || e.originalRows < 1 || e.originalRows > 1134 ||
+  if (!Number.isInteger(e.originalRows) || e.originalRows < 1 || e.originalRows > originalLimit ||
       !Number.isInteger(e.originalContexts) || e.originalContexts < 1 || e.originalContexts > 4 ||
       !bytes(e.serializedArchiveBytes) || e.serializedArchiveBytes > 32 * MiB)
     issues.push("finite_original_scope");

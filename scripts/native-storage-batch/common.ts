@@ -23,6 +23,9 @@ export const RETAINED_TABLES = UNIT_TABLES.filter(t => t !== EVAL && t !== CONTE
 export const BYTE_PRESERVED_TABLES = RETAINED_TABLES.filter(t => t !== INPUT);
 /** Unit config v2 carries the per-key frozen input-evidence bytes; v1 configs are history only. */
 export const UNIT_CONFIG_CONTRACT = "finite-native-storage-unit-config.v2" as const;
+/** A separate one-original caller, never a widened v3 finite-batch plan. */
+export const COMPACT_UNIT_CONFIG_CONTRACT = "finite-native-storage-unit-config.v3" as const;
+export const COMPACT_UNIT_MAX_EVALUATIONS = 3200;
 export const RETIRED_UNIT_CONFIG_CONTRACTS = Object.freeze(["finite-native-storage-unit-config.v1"] as const);
 export const NON_FK_TABLES = ["meta_ads_action_log", "decision_workflow_state", "decision_workflow_events",
   "meta_automation_proposals", "meta_launch_drafts"] as const;

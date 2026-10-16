@@ -11,8 +11,11 @@ import { NATIVE_STORAGE_BATCH_CONTRACT, runFiniteNativeStorageBatch, validateNat
   type NativeStorageBatchPlan } from "../../lib/creative-decision-engine/native-finite-storage-lifecycle";
 import { validateNativeRetainedReaderLedger } from "../../lib/creative-decision-engine/native-retained-reader-lifecycle";
 import { nativeRetainedReaderSources } from "../native-retained-reader-lifecycle-guard";
-import { collectWholeOriginal, sealAndPersist, verifyCopies, type UnitConfig } from "./capture";
-import { retireOnceWithParentChallenge, prepareUnitRetirement } from "./retire";
+import { collectWholeOriginal, sealAndPersist, verifyCopies, sealWholeOriginal,persistPrivateCopy,verifyPrivateCopies,type UnitConfig } from "./capture";
+import { NATIVE_ARCHIVE_ROOT_ENCODING } from "../../lib/creative-decision-engine/native-archive-root-codec";
+import { NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT } from "../../lib/creative-decision-engine/native-historical-archive";
+import { persistLocalNativeArchive } from "../../lib/creative-decision-engine/native-historical-local-store";
+import { retireOnceWithParentChallenge, prepareUnitRetirement,unitScope } from "./retire";
 import { independentReadback, readSelectedPinClosure, spaceReadback, vacuumComponent, observeTargetToast } from "./maintenance";
 import { collectMaintenanceSettlement, verifyMaintenanceSettlement } from "./maintenance-settlement";
 import { restoreIntoOwnedNewDatabase } from "./restore";
@@ -101,17 +104,19 @@ async function main() {
   let worlds = 0;
 
   /** A fresh source database from the migrated+index template, seeded through the actual producer writer. */
-  async function world(label: string) {
+  async function world(label: string,compact=false) {
     const name = `nsb_source_${hex}_${two(worlds++)}`;
     psql(pg, `CREATE DATABASE "${name}" TEMPLATE "${srcTpl}"`);
     const db = await connect(name);
     await db.query("SET timezone='UTC'");
-    const t = await seedTenant(db, 2), f = await seedTenant(db, 1);
+    const t = await seedTenant(db, compact?4:2), f = await seedTenant(db, 1);
     const cal = { t14: await seedCalibration(db, t, day(14), clock(day(14), 1)), t1: await seedCalibration(db, t, day(1), clock(day(1), 1)),
       f14: await seedCalibration(db, f, day(14), clock(day(14), 1)), f1: await seedCalibration(db, f, day(1), clock(day(1), 1)) };
     // G2: an unchanged same-day rerun (same tag/date/clock) -> the actual producer shares exactly one input key with G1.
-    const G1 = await seedGeneration(db, t, { date: day(14), clock: clock(day(14), 1), finishedAt: clock(day(14), 2), producer: cal.t14, perAccount: [2, 1], tag: "sh" });
-    const G2 = await seedGeneration(db, t, { date: day(14), clock: clock(day(14), 1), finishedAt: clock(day(14), 3), producer: cal.t14, perAccount: [1, 0], tag: "sh" });
+    const G1 = await seedGeneration(db, t, { date: day(14), clock: clock(day(14), 1), finishedAt: clock(day(14), 2), producer: cal.t14,
+      perAccount: compact?[3197,1,1,1]:[2,1], tag: "sh",...(compact?{nameRepeat:2}:{}) });
+    const G2 = await seedGeneration(db, t, { date: day(14), clock: clock(day(14), 1), finishedAt: clock(day(14), 3), producer: cal.t14,
+      perAccount: compact?[1,0,0,0]:[1,0], tag: "sh",...(compact?{nameRepeat:2}:{}) });
     const later = await seedGeneration(db, t, { date: day(1), clock: clock(day(1), 1), finishedAt: clock(day(1), 2), producer: cal.t1, perAccount: [1, 0], tag: "later" });
     const F1 = await seedGeneration(db, f, { date: day(14), clock: clock(day(14), 1), finishedAt: clock(day(14), 2), producer: cal.f14, perAccount: [2], tag: "fx" });
     await seedGeneration(db, f, { date: day(1), clock: clock(day(1), 1), finishedAt: clock(day(1), 2), producer: cal.f1, perAccount: [1], tag: "fl" });
@@ -121,15 +126,16 @@ async function main() {
       [jobRunId])).rows.map((r: any) => [r.cv, r.ih] as Key);
     const g1Keys = await keysOf(G1.jobRunId), g2Ids = new Set((await keysOf(G2.jobRunId)).map(k => JSON.stringify(k)));
     const shared = g1Keys.filter(k => g2Ids.has(JSON.stringify(k))), zero = g1Keys.filter(k => !g2Ids.has(JSON.stringify(k)));
-    assert(shared.length === 1 && zero.length === 2, `${label}: actual producer shared-key shape`);
+    assert(shared.length === 1 && zero.length === (compact?3199:2), `${label}: actual producer shared-key shape`);
     const producerJobs: string[] = [];
     return { label, name, db, t, f, G1, G2, later, F1, generation, shared, zero, producerJobs, connect: (o?: string) => connect(name, o) };
   }
   type World = Awaited<ReturnType<typeof world>>;
-  const freeze = async (w: World) => {
+  const freeze = async (w: World,compact=false) => {
     const ro = await w.connect();
     try { return await collectWholeOriginal(ro, { generation: w.generation, expectedEvaluations: w.G1.evaluations, expectedContexts: w.G1.contexts,
-      sourceRevision: head, consumerInventorySha256: pack.sourceManifestSha256 }); }
+      sourceRevision: head, consumerInventorySha256: pack.sourceManifestSha256,
+      ...(compact?{archiveMetadataEncoding:NATIVE_ARCHIVE_ROOT_ENCODING}:{}) }); }
     finally { await ro.end(); }
   };
   /** Every row of every unit table, by table (full JSONB bytes). */
@@ -200,6 +206,45 @@ async function main() {
   const close = async (w: World) => { await w.db.end(); };
 
   try {
+    if(wanted("compact")){
+      step="compact3200-seed";const w=await world("compact",true);
+      try{
+        assert.equal(await refusal(()=>freeze(w)),"FINITE_ORIGINAL_POPULATION");
+        step="compact3200-freeze";const frozen=await freeze(w,true),before=await state(w);
+        assert.equal(frozen.config.contract,"finite-native-storage-unit-config.v3");
+        const tooLarge={...frozen.config,evaluations:3201};
+        assert.equal(await refusal(async()=>unitScope(tooLarge,canonicalSha(tooLarge))),"FINITE_ORIGINAL_POPULATION");
+        const oldBatch={contract:NATIVE_STORAGE_BATCH_CONTRACT,purpose:"a".repeat(12),targetRevision:head,
+          sourceManifestSha256:pack.sourceManifestSha256,actualSourceReviewSha256:"b".repeat(64),expectedDatabaseBudgetBytes:163*1024**3,
+          cutoffObservedAt:new Date().toISOString(),units:[{generation:w.generation,evaluations:3200,contexts:4,originalProofSha256:frozen.proofSha256}]} as NativeStorageBatchPlan;
+        assert.equal(await refusal(async()=>validateNativeStorageBatchPlan(oldBatch)),"FINITE_ORIGINAL_POPULATION");
+        const key=randomBytes(32),archiveRoot=join(STATE,"compact-archive"),primary=join(STATE,"compact-primary"),recovery=join(STATE,"compact-recovery");
+        for(const d of [archiveRoot,primary,recovery])await mkdir(d,{mode:0o700});
+        step="compact3200-seal-copies";const sealed=sealWholeOriginal(frozen,`cie-${hex}`,key,{
+          metadataEncoding:NATIVE_ARCHIVE_ROOT_ENCODING,objectLayout:NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT});
+        for(const d of [primary,recovery])await persistPrivateCopy(d,sealed);
+        for(const part of sealed.sealedParts)await persistLocalNativeArchive(archiveRoot,part.bytes,part.trust,{layout:NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT});
+        const whole=await verifyPrivateCopies(sealed.metadata,key,[primary,recovery]);
+        assert.equal((await verifyCopies(sealed.metadata,key,archiveRoot,primary)).manifestHash,whole.manifestHash);
+        step="compact3200-full-ddl-restore";const restoreDb=`nsb_restore_${hex}_${two(worlds)}`;
+        psql(pg,`CREATE DATABASE "${restoreDb}" TEMPLATE "${rstTpl}"`);const rdb=await connect(restoreDb);let restored;
+        try{restored=await restoreIntoOwnedNewDatabase(rdb,whole,frozen.config);}finally{await rdb.end();}
+        psql(pg,`DROP DATABASE "${restoreDb}"`);assert.equal(restored.frozenProofParity,true);
+        step="compact3200-retire";const rc=await retireClient(w);
+        const result=await retireOnceWithParentChallenge(rc.client,request(frozen),async line=>challenge(frozen,line));
+        assert.equal(result.committed,true);const read=await w.connect();let back;
+        try{back=await independentReadback(read,frozen.config);}finally{await read.end();}
+        assert.equal(back.exactUnitAbsent,true);assert.equal(back.retainedRootsFullBytesMatch,true);
+        const changed=diff(before,await state(w));
+        assert.equal(changed[EVAL]!.removed.length,3200);assert.equal(changed[CONTEXT]!.removed.length,4);assert.equal(changed[INPUT]!.removed.length,3199);
+        assert(UNIT_TABLES.every(t=>changed[t]!.added.length===0&&([EVAL,CONTEXT,INPUT].includes(t)||changed[t]!.removed.length===0)));
+        assert.equal(await globalDangling(w),0);assert.deepEqual(await lockHolders(w),[]);
+        checks.compact={evaluations:3200,contexts:4,nameRepeat:2,encodedRows:frozen.encodedRows,parts:sealed.metadata.parts.length,
+          leafBytes:sealed.metadata.leafBytes,ciphertextBytes:sealed.metadata.archiveBytes,fullDdlRestore:true,originalBytesVerified:true,
+          committed:true,exactUnitAbsent:back.exactUnitAbsent,inputLifecycle:back.inputEvidence,foreignAndRetainedFullBytesKept:true};
+        key.fill(0);
+      }finally{await close(w);}
+    }
     // ---------------- S1: GREEN full lifecycle ----------------
     if (wanted("green")) {
       step = "green-seed"; const w = await world("green");

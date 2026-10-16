@@ -7,6 +7,7 @@ import { INPUT_EVIDENCE_LIFECYCLE, frozenRowSha, globalZeroReferenceKeys, liveRe
   type InputEvidenceConfig } from "./input-evidence-lifecycle";
 import { readNativeProducerIdle } from "./native-producer-idle";
 import { archiveEngineVeto } from "./archive-engine-eligibility";
+import { COMPACT_UNIT_CONFIG_CONTRACT } from "./common";
 
 /** Metadata-only bounded closed-day candidate selection. Reads job receipts and
  * the job-leading context index only; never an evaluation row. A candidate is
@@ -102,7 +103,7 @@ export async function independentReadback(db: Q, config: UnitConfig) {
     const ctx = (await db.query(`SELECT (SELECT count(*) FROM public.${CONTEXT} WHERE id=ANY($1::uuid[]))::int ids,(SELECT count(*) FROM public.${CONTEXT} WHERE job_run_id=$2::uuid)::int job`,
       [config.contextIds, config.generation.jobRunId])).rows[0];
     const roots = await readRetainedRoots(db, config);
-    const v3 = config.contract === UNIT_CONFIG_CONTRACT;
+    const v3 = config.contract === UNIT_CONFIG_CONTRACT || config.contract === COMPACT_UNIT_CONFIG_CONTRACT;
     const inputEvidence = v3 ? await readInputEvidenceLifecycle(db, config as UnitConfig & { inputEvidence: InputEvidenceConfig }) : null;
     const rootsMatch = v3 ? BYTE_PRESERVED_TABLES.every(t => same(roots[t], config.tableHashes[t])) && inputEvidence!.match === true
       : RETAINED_TABLES.every(t => same(roots[t], config.tableHashes[t]));

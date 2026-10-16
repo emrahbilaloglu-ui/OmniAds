@@ -8,6 +8,7 @@ import { buildNativeCalibrationParentArchive } from "../../lib/creative-decision
 import { computeNativeAdCalibrationCellSetHash } from "../../lib/creative-decision-engine/jobs/ad-calibration-job";
 import { openNativeHistoricalArchiveEnvelope, sealCompressedNativeHistoricalArchive,
   NATIVE_HISTORICAL_COMPACT_ROOT_CATALOG_CONTRACT,
+  NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT, nativeHistoricalArchiveObjectKey,
   type NativeHistoricalArchiveCatalogEntry } from "../../lib/creative-decision-engine/native-historical-archive";
 import { splitNativeReferenceArchive } from "../../lib/creative-decision-engine/native-reference-archive-segments";
 import { encodeNativeArchiveRoot, NATIVE_ARCHIVE_ROOT_ENCODING } from "../../lib/creative-decision-engine/native-archive-root-codec";
@@ -15,12 +16,14 @@ import { encodeNativeArchiveRoot, NATIVE_ARCHIVE_ROOT_ENCODING } from "../../lib
 export async function businessArchiveFixture(businessId: string, options: {
   inputEvidenceRowJson?: string; encryptionKey?: Buffer; encryptionKeyId?: string;
   compactRoot?: boolean;
+  jobRunId?: string;
+  tenantObjects?: boolean;
 } = {}) {
   const f = JSON.parse(await readFile(join(process.cwd(), options.compactRoot ?
     "scripts/fixtures/native-historical-worker-reference.json" : "scripts/fixtures/native-historical-worker.json"), "utf8"));
   const original = openNativeHistoricalArchiveEnvelope(Buffer.from(f.ciphertextBase64, "base64"), f.entry,
     Buffer.from(f.fixtureEncryptionKeyHex, "hex"), f.request.generation).bundle;
-  const generation = { ...original.core.manifest.generation, businessId, jobRunId: randomUUID() };
+  const generation = { ...original.core.manifest.generation, businessId, jobRunId: options.jobRunId ?? randomUUID() };
   const oldInputRef = original.core.manifest.tables.find(t => t.table === "engine_v3_ad_decision_input_evidence")!.rows[0]!;
   const oldInput = JSON.parse(original.core.objects[oldInputRef.objectHash]!);
   const input = options.inputEvidenceRowJson ? JSON.parse(options.inputEvidenceRowJson) : oldInput;
@@ -65,7 +68,8 @@ export async function businessArchiveFixture(businessId: string, options: {
       coverageRoot:split.root,coverageRootSha256:split.rootDigest,evaluationIds:part.bundle.core.manifest.segment!.evaluationIds,
     },{metadataEncoding:NATIVE_ARCHIVE_ROOT_ENCODING}) : sealCompressedNativeHistoricalArchive(parents.bundle,expected,keyId,key);
   const entry: NativeHistoricalArchiveCatalogEntry = { ...sealed.trust, object: { bucket: "adsecute-native-local",
-    key: `native/v2/${sealed.trust.ciphertextSha256}.bin`, versionId: sealed.trust.ciphertextSha256 } };
+    key: nativeHistoricalArchiveObjectKey(sealed.trust,options.tenantObjects?NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT:undefined),
+    versionId: sealed.trust.ciphertextSha256,...(options.tenantObjects?{layout:NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT}:{}) } };
   const leaf = split ? Buffer.from(JSON.stringify({contract:NATIVE_HISTORICAL_COMPACT_ROOT_CATALOG_CONTRACT,
     groups:[{coverageRoot:encodeNativeArchiveRoot(split.root),coverageRootSha256:split.rootDigest}],
     entries:[{...entry,segment:{coverageRootSha256:split.rootDigest,evaluationIds:sealed.trust.segment!.evaluationIds}}]})) : null;

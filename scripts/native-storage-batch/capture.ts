@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { readNativeEvaluationContextUnit, assessNativeEvaluationContextUnit } from "../../lib/creative-decision-engine/native-evaluation-context-unit";
 import { readNativeArchivePinCensus, assessNativeArchivePins } from "../../lib/creative-decision-engine/native-archive-pin-census";
@@ -10,13 +9,15 @@ import { NATIVE_CALIBRATION_PARENT_TABLES, buildNativeCalibrationParentArchive,
   type NativeCalibrationParentBundle } from "../../lib/creative-decision-engine/native-calibration-parent-archive";
 import { splitNativeReferenceArchive, reassembleNativeReferenceArchive } from "../../lib/creative-decision-engine/native-reference-archive-segments";
 import { sealCompressedNativeHistoricalArchive, openNativeHistoricalArchiveEnvelope, openImmutableNativeHistoricalArchiveCatalog,
-  nativeHistoricalArchiveStorageVersion, NATIVE_HISTORICAL_SEGMENTED_CATALOG_CONTRACT,
+  NATIVE_HISTORICAL_SEGMENTED_CATALOG_CONTRACT,
   NATIVE_HISTORICAL_COMPACT_ROOT_CATALOG_CONTRACT, nativeHistoricalTrustForStorage,
+  NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT, nativeHistoricalArchiveObjectKey,
   type NativeHistoricalArchiveContentTrust } from "../../lib/creative-decision-engine/native-historical-archive";
 import { encodeNativeArchiveRoot, NATIVE_ARCHIVE_ROOT_ENCODING, NATIVE_ARCHIVE_ROOT_CODEC_LIMITS } from "../../lib/creative-decision-engine/native-archive-root-codec";
-import { persistLocalNativeArchive, NATIVE_LOCAL_ARCHIVE_BUCKET } from "../../lib/creative-decision-engine/native-historical-local-store";
+import { persistLocalNativeArchive, readLocalNativeArchiveVersion, NATIVE_LOCAL_ARCHIVE_BUCKET } from "../../lib/creative-decision-engine/native-historical-local-store";
 import { CLOSED_DAY_BUFFER_MS, CONTEXT, DECLARED_CLOSURE_GAP, EVAL, EXPECTED_INCOMING_FKS, NATIVE_JOB, NON_FK_CLASSES,
   UNIT_CONFIG_CONTRACT, UNIT_TABLES, UUID, type UnitTable, canonical, canonicalSha, need, rowSetHash, same, sha256, writeExclusive, BatchRefusal,
+  COMPACT_UNIT_CONFIG_CONTRACT, COMPACT_UNIT_MAX_EVALUATIONS,
   privateDirectory, readExact } from "./common";
 import { archiveEngineVeto } from "./archive-engine-eligibility";
 import { INPUT_EVIDENCE_LIFECYCLE, readInputEvidenceCatalog, type InputEvidenceConfig } from "./input-evidence-lifecycle";
@@ -98,7 +99,9 @@ export async function readTargetCatalog(read: (sql: string, values?: unknown[]) 
 
 export interface UnitConfig {
   /** v2 (D150): executable. v1: history only (settlement/readback of consumed purposes). */
-  contract: typeof UNIT_CONFIG_CONTRACT | "finite-native-storage-unit-config.v1";
+  contract: typeof UNIT_CONFIG_CONTRACT | typeof COMPACT_UNIT_CONFIG_CONTRACT | "finite-native-storage-unit-config.v1";
+  archiveMetadataEncoding?: typeof NATIVE_ARCHIVE_ROOT_ENCODING;
+  archiveObjectLayout?: typeof NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT;
   generation: NativeArchiveGeneration;
   evaluations: number; contexts: number;
   evaluationIds: string[]; contextIds: string[];
@@ -116,6 +119,7 @@ export interface UnitConfig {
 export interface CaptureInput {
   generation: NativeArchiveGeneration; expectedEvaluations: number; expectedContexts: number;
   sourceRevision: string; consumerInventorySha256: string;
+  archiveMetadataEncoding?: typeof NATIVE_ARCHIVE_ROOT_ENCODING;
 }
 const parse = (raw: string) => { const v = JSON.parse(raw); need(v && typeof v === "object" && !Array.isArray(v), "ROW_SHAPE"); return v; };
 const distinct = <T>(values: T[]) => [...new Set(values)];
@@ -216,12 +220,15 @@ export async function censusVeto(read: (sql: string, values?: unknown[]) => Prom
 /** One complete RO measurement + bundle. Throws a stable veto code. */
 export async function collectWholeOriginal(db: Q, input: CaptureInput) {
   const g = input.generation;
+  const compact=input.archiveMetadataEncoding===NATIVE_ARCHIVE_ROOT_ENCODING;
+  need(input.archiveMetadataEncoding===undefined||compact,"EXPLICIT_ARCHIVE_METADATA_ENCODING");
+  const evaluationLimit=compact?COMPACT_UNIT_MAX_EVALUATIONS:cap.evaluations;
   // D149: archive-engine eligibility BEFORE any source statement (no evaluation/context materialization); the receipt
   // check below then binds the actual successful job row to this exact supported engine.
   const engineVeto = archiveEngineVeto(g?.engineVersion);
   if (engineVeto) throw new BatchRefusal(engineVeto);
   need(/^[a-f0-9]{40}$/.test(input.sourceRevision) && /^[a-f0-9]{64}$/.test(input.consumerInventorySha256), "EXACT_SOURCE_IDENTITY");
-  need(Number.isInteger(input.expectedEvaluations) && input.expectedEvaluations > 0 && input.expectedEvaluations <= cap.evaluations &&
+  need(Number.isInteger(input.expectedEvaluations) && input.expectedEvaluations > 0 && input.expectedEvaluations <= evaluationLimit &&
     Number.isInteger(input.expectedContexts) && input.expectedContexts > 0 && input.expectedContexts <= cap.contexts, "FINITE_ORIGINAL_POPULATION");
   const source = readOnlyAdapter(db);
   let encoded = 0, began = false;
@@ -262,7 +269,7 @@ export async function collectWholeOriginal(db: Q, input: CaptureInput) {
     const evaluationRows = await rows(`SELECT to_jsonb(e)::text bytes FROM (${evalSelection.sql}) e
       JOIN public.engine_v3_job_runs j ON e.job_run_id=j.id AND e.business_ref_id=j.business_ref_id
         AND e.business_id=j.business_id AND e.as_of_date=j.as_of_date AND e.engine_version=j.engine_version
-      WHERE j.id=$1::uuid LIMIT 1135`, [g.jobRunId], cap.evaluations);
+      WHERE j.id=$1::uuid LIMIT ${evaluationLimit+1}`, [g.jobRunId], evaluationLimit);
     need(evaluationRows.length === input.expectedEvaluations, "FULL_ORIGINAL_EVALUATIONS");
     const evaluations = evaluationRows.map(parse);
     const contextIds = distinct(evaluations.map(x => x.context_id as string));
@@ -273,7 +280,7 @@ export async function collectWholeOriginal(db: Q, input: CaptureInput) {
     need(hashes.every(h => typeof h === "string" && /^[0-9a-f]{64}$/.test(h)) && contracts.every(c => typeof c === "string" && c.length > 0), "INPUT_ROOT_KEY_TYPES");
     const inputRows = await rows(`SELECT DISTINCT to_jsonb(i)::text bytes FROM public.engine_v3_ad_decision_input_evidence i
       JOIN unnest($1::text[],$2::character(64)[]) keys(contract_version,input_hash)
-      ON i.contract_version=keys.contract_version AND i.input_hash=keys.input_hash LIMIT 1135`, [contracts, hashes], cap.evaluations);
+      ON i.contract_version=keys.contract_version AND i.input_hash=keys.input_hash LIMIT ${evaluationLimit+1}`, [contracts, hashes], evaluationLimit);
     // D150: every frozen key has exactly its one full evidence row, frozen per key; the input table has no concrete consumer.
     const inputKeys = distinct(evaluations.map(x => JSON.stringify([x.contract_version, x.input_hash]))).sort();
     const inputByKey = new Map(inputRows.map(raw => { const r = parse(raw); return [JSON.stringify([r.contract_version, r.input_hash]), raw] as const; }));
@@ -282,13 +289,13 @@ export async function collectWholeOriginal(db: Q, input: CaptureInput) {
     const inputCatalog = await readInputEvidenceCatalog(q);
     const snapshotSelection = await readNativeJobSnapshotSelection(source, "public");
     need(snapshotSelection.route === "validated_evaluation_lineage", "ENFORCED_SNAPSHOT_LINEAGE_REQUIRED");
-    const snapshotRows = await rows(`SELECT to_jsonb(s)::text bytes FROM (${snapshotSelection.sql}) s LIMIT 1135`, [g.jobRunId], cap.evaluations);
+    const snapshotRows = await rows(`SELECT to_jsonb(s)::text bytes FROM (${snapshotSelection.sql}) s LIMIT ${evaluationLimit+1}`, [g.jobRunId], evaluationLimit);
     need(snapshotRows.length === 0, "RETAINED_SNAPSHOT_VETO");
     const objectHashes = distinct(evaluations.map(x => x.campaign_context_ref).filter(x => x !== null)) as string[];
-    need(objectHashes.length <= cap.objects && objectHashes.every(x => typeof x === "string" && /^\\x[a-f0-9]{64}$/.test(x)), "ORIGINAL_BYTEA_CONTEXT_KEYS");
+    need(objectHashes.length <= evaluationLimit && objectHashes.every(x => typeof x === "string" && /^\\x[a-f0-9]{64}$/.test(x)), "ORIGINAL_BYTEA_CONTEXT_KEYS");
     const objectRows = await rows(`SELECT to_jsonb(raw)::text AS bytes FROM unnest($2::bytea[]) AS key(digest) CROSS JOIN LATERAL
       (SELECT o.* FROM public.engine_v3_ad_campaign_context_objects o WHERE o.business_ref_id=$1::uuid AND o.payload_sha256=key.digest OFFSET 0) raw`,
-      [g.businessId, objectHashes.map(x => Buffer.from(x.slice(2), "hex"))], cap.objects);
+      [g.businessId, objectHashes.map(x => Buffer.from(x.slice(2), "hex"))], evaluationLimit);
     need(objectRows.length === objectHashes.length, "COMPLETE_ORIGINAL_SHARED_OBJECTS");
     const names = distinct([...NATIVE_REFERENCE_ARCHIVE_TABLES, ...NATIVE_CALIBRATION_PARENT_TABLES]) as string[];
     const columns = (await q(`SELECT c.relname "table",a.attname name,format_type(a.atttypid,a.atttypmod) type,NOT a.attnotnull nullable FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid WHERE n.nspname='public' AND c.relname=ANY($1::text[]) AND a.attnum>0 AND NOT a.attisdropped ORDER BY c.relname,a.attnum`, [names])).rows;
@@ -329,7 +336,8 @@ export async function collectWholeOriginal(db: Q, input: CaptureInput) {
       [EVAL]: evaluationRows, engine_v3_ad_decision_input_evidence: inputRows, engine_v3_ad_decision_snapshots_daily: snapshotRows,
       engine_v3_ad_campaign_context_objects: objectRows, engine_v3_ad_account_calibration_batches: batchRows,
       engine_v3_ad_account_calibration_daily: cells } as Record<UnitTable, string[]>;
-    const config: UnitConfig = { contract: UNIT_CONFIG_CONTRACT, generation: { ...g },
+    const config: UnitConfig = { contract: compact?COMPACT_UNIT_CONFIG_CONTRACT:UNIT_CONFIG_CONTRACT,
+      ...(compact?{archiveMetadataEncoding:NATIVE_ARCHIVE_ROOT_ENCODING,archiveObjectLayout:NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT}:{}),generation: { ...g },
       evaluations: evaluations.length, contexts: contextIds.length,
       evaluationIds: evaluations.map(x => x.id as string).sort(), contextIds: [...contextIds].sort(),
       inputKeys: inputKeys.map(x => JSON.parse(x)),
@@ -366,8 +374,11 @@ export interface SealedPart { ciphertextSha256: string; ciphertextBytes: number;
  * decrypt-verify, build the complete v3 leaf (content-addressed local object
  * pointers). No file, no key output. */
 export function sealWholeOriginal(collected: Awaited<ReturnType<typeof collectWholeOriginal>>, keyId: string, key: Buffer,
-  options?: { metadataEncoding: typeof NATIVE_ARCHIVE_ROOT_ENCODING }) {
+  options?: { metadataEncoding: typeof NATIVE_ARCHIVE_ROOT_ENCODING; objectLayout?: typeof NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT }) {
   need(key.length === 32 && /^[a-zA-Z0-9._-]{1,80}$/.test(keyId), "SEPARATE_ENCRYPTION_KEY_REQUIRED");
+  need(collected.config.contract!==COMPACT_UNIT_CONFIG_CONTRACT||options?.metadataEncoding===NATIVE_ARCHIVE_ROOT_ENCODING&&
+    options.objectLayout===NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT,
+    "COMPACT_UNIT_REQUIRES_COMPACT_ARCHIVE");
   const g = collected.config.generation;
   const expected = { manifestHash: collected.manifestHash, schemaHash: collected.schemaHash, generation: g };
   const split = splitNativeReferenceArchive(collected.bundle, expected);
@@ -386,8 +397,9 @@ export function sealWholeOriginal(collected: Awaited<ReturnType<typeof collectWh
     need(sealed.trust.plaintextBytes <= 8 * 1024 * 1024 && sealed.bytes.length <= 2 * 1024 * 1024, "UNCHANGED_PER_SEGMENT_TRANSPORT_BOUND");
     const opened = openNativeHistoricalArchiveEnvelope(sealed.bytes, sealed.trust, key, g);
     need(canonical(opened.bundle) === canonical(part.bundle) && opened.view.providerAuthority === false, "SEALED_PART_PARITY");
-    const trustBytes = Buffer.from(JSON.stringify(options ? nativeHistoricalTrustForStorage(sealed.trust) : sealed.trust)), version = nativeHistoricalArchiveStorageVersion(sealed.trust);
-    const object = { bucket: NATIVE_LOCAL_ARCHIVE_BUCKET, key: `native/${version}/${sealed.trust.ciphertextSha256}.bin`, versionId: sealed.trust.ciphertextSha256 };
+    const trustBytes = Buffer.from(JSON.stringify(options ? nativeHistoricalTrustForStorage(sealed.trust) : sealed.trust));
+    const object = { bucket: NATIVE_LOCAL_ARCHIVE_BUCKET, key: nativeHistoricalArchiveObjectKey(sealed.trust,options?.objectLayout),
+      versionId: sealed.trust.ciphertextSha256,...(options?.objectLayout?{layout:options.objectLayout}:{}) };
     const segment = sealed.trust.segment!;
     entries.push({ ...sealed.trust, segment: { coverageRootSha256: segment.coverageRootSha256, evaluationIds: segment.evaluationIds }, object });
     parts.push({ ciphertextSha256: sealed.trust.ciphertextSha256, ciphertextBytes: sealed.bytes.length,
@@ -458,22 +470,27 @@ export async function verifyPrivateCopies(metadata: CaptureMetadata, key: Buffer
 export async function verifyCopies(metadata: { generation: NativeArchiveGeneration; coverageRoot: unknown; coverageRootSha256: string;
   manifestHash: string; parts: SealedPart[]; leafSha256: string }, key: Buffer, archiveRoot: string, copyDirectory: string) {
   const decrypted: NativeCalibrationParentBundle[] = [];
+  const leaf=await readExact(join(copyDirectory,`leaf-${metadata.leafSha256}.json`),944*1024);
+  const catalog=openImmutableNativeHistoricalArchiveCatalog(leaf,metadata.leafSha256);
+  need(catalog.entries.length===metadata.parts.length&&catalog.entries.every(e=>same(e.generation,metadata.generation)),"ROOT_OR_CIPHER_COPY_MISMATCH");
   for (const part of metadata.parts) {
-    const a = await readExact(join(archiveRoot, "native/v2", `${part.ciphertextSha256}.bin`), 2 * 1024 * 1024 + 128);
+    const entry=catalog.entries.find(e=>e.ciphertextSha256===part.ciphertextSha256);need(entry,"ROOT_OR_CIPHER_COPY_MISMATCH");
+    const a = await readLocalNativeArchiveVersion(archiveRoot,entry);
     const b = await readExact(join(copyDirectory, `${part.ciphertextSha256}.bin`), 2 * 1024 * 1024 + 128);
     const trustBytes = await readExact(join(copyDirectory, `${part.ciphertextSha256}.trust.json`), 1024 * 1024);
     need(sha256(a) === part.ciphertextSha256 && sha256(b) === part.ciphertextSha256 && a.length === part.ciphertextBytes &&
       sha256(trustBytes) === part.trustSha256, "ROOT_OR_CIPHER_COPY_MISMATCH");
     const trust = JSON.parse(trustBytes.toString("utf8")) as NativeHistoricalArchiveContentTrust;
     need(trust.segment?.coverageRootSha256 === metadata.coverageRootSha256, "ROOT_OR_CIPHER_COPY_MISMATCH");
-    decrypted.push(openNativeHistoricalArchiveEnvelope(b, trust, key, metadata.generation).bundle);
+    const original=openNativeHistoricalArchiveEnvelope(b, trust, key, metadata.generation).bundle;
+    need(canonical(openNativeHistoricalArchiveEnvelope(a,entry,key,metadata.generation).bundle)===canonical(original),"ROOT_OR_CIPHER_COPY_MISMATCH");
+    decrypted.push(original);
   }
-  const leaf = await readExact(join(copyDirectory, `leaf-${metadata.leafSha256}.json`), 944 * 1024);
-  need(sha256(leaf) === metadata.leafSha256, "ROOT_OR_CIPHER_COPY_MISMATCH");
+  need(sha256(await readExact(join(copyDirectory,`leaf-${metadata.leafSha256}.json`),944*1024))===metadata.leafSha256,"ROOT_OR_CIPHER_COPY_MISMATCH");
   const whole = reassembleNativeReferenceArchive(decrypted, metadata.coverageRoot as never, metadata.coverageRootSha256);
   need(whole.manifestHash === metadata.manifestHash, "ROOT_OR_CIPHER_COPY_MISMATCH");
   return whole;
 }
 export const readCaptureMetadata = async (copyDirectory: string) =>
-  JSON.parse((await readFile(join(copyDirectory, "capture.json"))).toString("utf8"));
+  JSON.parse((await readExact(join(copyDirectory, "capture.json"),4*1024*1024)).toString("utf8"));
 export type { NativeArchiveTable };

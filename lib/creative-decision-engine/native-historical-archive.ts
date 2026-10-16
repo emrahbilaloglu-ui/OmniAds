@@ -12,6 +12,7 @@ export const NATIVE_HISTORICAL_CATALOG_CONTRACT = "native-historical-archive-cat
 export const NATIVE_HISTORICAL_COMPRESSED_CATALOG_CONTRACT = "native-historical-archive-catalog.v2" as const;
 export const NATIVE_HISTORICAL_SEGMENTED_CATALOG_CONTRACT = "native-historical-archive-catalog.v3" as const;
 export const NATIVE_HISTORICAL_COMPACT_ROOT_CATALOG_CONTRACT = "native-historical-archive-catalog.v4" as const;
+export const NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT = "tenant.v1" as const;
 export const NATIVE_HISTORICAL_COMPRESSED_ENCODING = "native-historical-aes-256-gcm-gzip.v2" as const;
 export const NATIVE_HISTORICAL_EVIDENCE_CONTRACT = "decision-engine-v3-native-ad-historical-evidence.v1" as const;
 export const NATIVE_REFERENCE_HISTORICAL_EVIDENCE_CONTRACT = "decision-engine-v3-native-ad-historical-evidence.v2" as const;
@@ -48,7 +49,7 @@ export type NativeHistoricalArchiveContentTrust = NativeHistoricalArchivePlainte
   segment?: NativeHistoricalArchiveSegmentTrust;
 };
 export type NativeHistoricalArchiveCatalogEntry = NativeHistoricalArchiveContentTrust & {
-  object: { bucket: string; key: string; versionId: string };
+  object: { bucket: string; key: string; versionId: string; layout?: typeof NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT };
 }
 export interface NativeHistoricalArchiveCatalog {
   contract: typeof NATIVE_HISTORICAL_CATALOG_CONTRACT | typeof NATIVE_HISTORICAL_COMPRESSED_CATALOG_CONTRACT |
@@ -226,6 +227,14 @@ export function nativeHistoricalArchiveStorageVersion(trust: NativeHistoricalArc
   return contentTrust(trust).encoding === NATIVE_HISTORICAL_COMPRESSED_ENCODING ? "v2" : "v1";
 }
 
+/** Layout is an explicit catalog routing property. GCM already binds the
+ * generation/tenant; no caller-supplied path or cross-tenant content lookup. */
+export function nativeHistoricalArchiveObjectKey(trust:NativeHistoricalArchiveContentTrust,layout?:typeof NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT) {
+  if(layout!==undefined&&(layout!==NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT||trust.metadataEncoding!==NATIVE_ARCHIVE_ROOT_ENCODING))
+    refuse("unsupported object layout");
+  return `native/${nativeHistoricalArchiveStorageVersion(trust)}/${layout?trust.generation.businessId+"/":""}${trust.ciphertextSha256}.bin`;
+}
+
 /** New transports serialize only the coverage root differently. The normalized
  * entry still carries the full original root for every existing byte/membership
  * verifier. New GCM AAD binds the explicit metadata encoding; old AAD is intact. */
@@ -271,14 +280,15 @@ export function openNativeHistoricalArchiveCatalog(bytes: Uint8Array, expectedDi
     const trust = contentTrust(normalized), object = record(r.object);
     const bucket = exactString(object.bucket, 63), objectKey = exactString(object.key), versionId = exactString(object.versionId);
     if (catalog.contract === NATIVE_HISTORICAL_CATALOG_CONTRACT && trust.encoding !== undefined) refuse("compressed entry requires v2 catalog");
-    const version = nativeHistoricalArchiveStorageVersion(trust);
+    const tenant=object.layout===NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT;
+    if(object.layout!==undefined&&(!tenant||!compact))refuse("unsupported catalog object layout");
     if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucket) ||
-      objectKey !== `native/${version}/${trust.ciphertextSha256}.bin` || versionId === "null") refuse("invalid immutable object pointer");
+      objectKey !== nativeHistoricalArchiveObjectKey(trust,tenant?NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT:undefined) || versionId === "null") refuse("invalid immutable object pointer");
     const kind=trust.segment?.coverageRootSha256??"whole";
     if(seen.has(trust.generation.jobRunId)&&(kind==="whole"||seen.get(trust.generation.jobRunId)!==kind)) refuse("ambiguous generation index");
     seen.set(trust.generation.jobRunId,kind);
     if(trust.segment&&!stableGenerationEqual(trust.generation,trust.segment.coverageRoot.core.generation)) refuse("foreign fragment generation");
-    return { ...trust, object: { bucket, key: objectKey, versionId } };
+    return { ...trust, object: { bucket, key: objectKey, versionId,...(tenant?{layout:NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT}:{}) } };
   });
   for(const group of groups) {
     const selected=entries.filter(e=>e.segment?.coverageRootSha256===group.coverageRootSha256).flatMap(e=>e.segment!.evaluationIds);

@@ -143,8 +143,8 @@
     {
       "path": "lib/creative-decision-engine/native-historical-archive.ts",
       "role": "storage-and-pin-reader",
-      "sha256": "85642458feb5114bbb019cd167447076dbe6c0d7065707737b5f27ea0e8f3d57",
-      "retention": "Historical-only original evidence; D173 adds explicit v4 compact coverage metadata with unchanged wire/envelope bounds, one original group and at most16segments, at most2MiB decoded root, complete original membership and encoding-bound GCM. Legacy formats remain readable; no current authority or source removal."
+      "sha256": "cf5d354894f946095e3487aca2de7ced394c2080458664728e94c2cd1e44f3ba",
+      "retention": "D174 explicit tenant ciphertext path only for compact v4 originals; full generation/AAD/hash verification and legacy formats remain unchanged. No publication or retirement authority."
     },
     {
       "path": "lib/creative-decision-engine/native-job-evaluation-selection.ts",
@@ -341,8 +341,8 @@
     {
       "path": "scripts/fixtures/business-archive-erasure.ts",
       "role": "owned-fixture",
-      "sha256": "57609c503f1b8826ca5f3348aea352d3e77e4c06357cc86bb9f09009ac3a90d3",
-      "retention": "Public synthetic history and explicit v4 fixture only; no canonical producer/current authority or production generation claim. Exercises selected erasure and foreign historical-reader continuity."
+      "sha256": "4abdf0a092ae2405b18f0b9e7d5ede4f10272288d7aac60ce672d2232a551f30",
+      "retention": "D174 synthetic tenant-layout/compact fixtures only; never production evidence or removal authority."
     },
     {
       "path": "scripts/generate-native-reference-worker-fixture.ts",
@@ -407,20 +407,20 @@
     {
       "path": "scripts/native-storage-batch/capture.ts",
       "role": "offline-operator",
-      "sha256": "0111741a96f8a036df08e5eecf2f0a0a02d9aa4a8552b93110036a4cee47413f",
-      "retention": "Whole-original read-only collector keeps1134evaluations/four-context and32MiB source bounds. D173 adds an explicit opt-in v4 metadata serializer; default transport remains v3. Full original rows, manifests, complete coverage and independent copies/restore remain mandatory; no removal authority."
+      "sha256": "b18657fd44980fcc671d31f953f9f8331b8eca484706dead89d2446a483173ab",
+      "retention": "D174 opt-in compact unit config v3 captures ONE whole original <=3200 rows/4 contexts under unchanged source/plaintext/query/pin bounds. Tenant ciphertext keys, exact two-private/served-copy decryption parity; legacy finite collector remains1134. No automatic execution permission."
     },
     {
       "path": "scripts/native-storage-batch/common.ts",
       "role": "offline-operator",
-      "sha256": "7f3126c81c0d6e13ade16c35372ee32c4bfbc2001dd12bdebfc0d024938de6ad",
-      "retention": "Finite digest-bound whole-original operator only: retain every historical snapshot, outcome/action/workflow/hysteresis/reuse and unknown-consumer pin; retain original jobs/calibration/provider roots and every live-referenced (shared) input-evidence key byte-identical. D150 v3: after the selected original's exact evaluations/contexts are deleted, only its frozen input-evidence keys with zero GLOBAL live evaluation references (catalog- and EXPLAIN-verified (contract_version,input_hash) index probe) are removed, byte-verified, under a session producer exclusion taken before the REPEATABLE READ transaction and held through the parent COMMIT/ROLLBACK; the archived original keeps their full bytes. Exact source/restore/copies/HTTP/pin gates precede selected original retirement. Ordinary main maintenance (evaluations, contexts, input evidence) and allocated/reusable/OS/admission measurements remain separate; no GC, clock normalization, override or general retention authority. Exact terminal manual-projection children may remain live beside their retained original job only with typed identity, catalog/count closure, frozen full-row bytes, fresh recensus, transaction parity and independent readback; real/unknown/changed dependency pins refuse."
+      "sha256": "193175e3a44d8ed465c6b51928a7bc6c1d1edd0742011e2986440c6b3abcc7c3",
+      "retention": "D174 declares separate compact config v3/3200 limit; does not widen old finite batch limits or modify original identities/clocks."
     },
     {
       "path": "scripts/native-storage-batch/input-evidence-lifecycle-pg.ts",
       "role": "owned-fixture",
-      "sha256": "a46ecaf30d44c0473a9c66808d8987c0f99f8d5b17f6e41b5345111b39788341",
-      "retention": "Only owned socket-only PostgreSQL/fake-host or owned HTTP fixtures; preserve their declared seam boundary. This is not live production census, provider authority or reclamation permission."
+      "sha256": "5fe6353a0e4e2b0483143fb959635ed7d7d596ba63caea8b76b442e3e42ad839",
+      "retention": "D174 owned-only real-PG compact3200 scenario: old collector/batch refusal, actual producer/full-DDL restore, C3 parent challenge and independent global shared-input/foreign-row/lineage preservation. Not live acceptance."
     },
     {
       "path": "scripts/native-storage-batch/input-evidence-lifecycle.ts",
@@ -431,8 +431,8 @@
     {
       "path": "scripts/native-storage-batch/maintenance.ts",
       "role": "offline-operator",
-      "sha256": "a1a4a3419f1cb761eadaacc21ecc9c58860e8323779f2a621b5048a9626aef2a",
-      "retention": "Finite digest-bound whole-original operator only: retain every historical snapshot, outcome/action/workflow/hysteresis/reuse and unknown-consumer pin; retain original jobs/calibration/provider roots and every live-referenced (shared) input-evidence key byte-identical. D150 v3: after the selected original's exact evaluations/contexts are deleted, only its frozen input-evidence keys with zero GLOBAL live evaluation references (catalog- and EXPLAIN-verified (contract_version,input_hash) index probe) are removed, byte-verified, under a session producer exclusion taken before the REPEATABLE READ transaction and held through the parent COMMIT/ROLLBACK; the archived original keeps their full bytes. Exact source/restore/copies/HTTP/pin gates precede selected original retirement. Ordinary main maintenance (evaluations, contexts, input evidence) and allocated/reusable/OS/admission measurements remain separate; no GC, clock normalization, override or general retention authority. Exact terminal manual-projection children may remain live beside their retained original job only with typed identity, catalog/count closure, frozen full-row bytes, fresh recensus, transaction parity and independent readback; real/unknown/changed dependency pins refuse."
+      "sha256": "e4029c1bc04e03524209a52d2d4414df06af2c535a4bb6b175ea16af8e82aa11",
+      "retention": "D174 independent readback recognizes explicit compact config v3 with identical global zero-reference and original retained-root byte proofs. No age pruning, source selection relaxation or maintenance authority."
     },
     {
       "path": "scripts/native-storage-batch/owned-e2e.ts",
@@ -443,8 +443,8 @@
     {
       "path": "scripts/native-storage-batch/owned-fixture.ts",
       "role": "owned-fixture",
-      "sha256": "aea4d93943cd83c96c5d326483ce23f5e6c3fe71df540fe243a5f1d008614457",
-      "retention": "Only owned socket-only PostgreSQL/fake-host or owned HTTP fixtures; preserve their declared seam boundary. This is not live production census, provider authority or reclamation permission."
+      "sha256": "8a32bc07742d66ab0612fbe8c098092c6d56fd4e492e2beb5447fc146f49abe0",
+      "retention": "D174 optional owned fixture string population size only, defaults unchanged; all actual producer identities, rows, clocks and schema retained."
     },
     {
       "path": "scripts/native-storage-batch/production-actor.py",
@@ -467,8 +467,8 @@
     {
       "path": "scripts/native-storage-batch/retire.ts",
       "role": "offline-operator",
-      "sha256": "dd6741df7f3e80571d2ce19d79d044f1fb508285c11498b092acddbee1031ab7",
-      "retention": "Finite digest-bound whole-original operator only: retain every historical snapshot, outcome/action/workflow/hysteresis/reuse and unknown-consumer pin; retain original jobs/calibration/provider roots and every live-referenced (shared) input-evidence key byte-identical. D150 v3: after the selected original's exact evaluations/contexts are deleted, only its frozen input-evidence keys with zero GLOBAL live evaluation references (catalog- and EXPLAIN-verified (contract_version,input_hash) index probe) are removed, byte-verified, under a session producer exclusion taken before the REPEATABLE READ transaction and held through the parent COMMIT/ROLLBACK; the archived original keeps their full bytes. Exact source/restore/copies/HTTP/pin gates precede selected original retirement. Ordinary main maintenance (evaluations, contexts, input evidence) and allocated/reusable/OS/admission measurements remain separate; no GC, clock normalization, override or general retention authority. Exact terminal manual-projection children may remain live beside their retained original job only with typed identity, catalog/count closure, frozen full-row bytes, fresh recensus, transaction parity and independent readback; real/unknown/changed dependency pins refuse."
+      "sha256": "cfec62ab1fc9a639248090f7ba5c8b7dc9d2cc8d114ca5a067677aaeb829896a",
+      "retention": "D174 separate compact config v3 requires exact root encoding/tenant object layout, <=3200 rows and unchanged pin census, source bytes, 60s/192 statement bound, producer lock and C3 parent challenge. Old configv2 stays1134; no automatic publication/admission authority."
     },
     {
       "path": "scripts/native-storage-batch/rw-unit-inventory.ts",
@@ -489,5 +489,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "a55fa940c5c3ef73bdb32e566e84fdfef6a9cd5b247c67c8a3d3d62baa404f08"
+  "sourceInventorySha256": "ef194c5a64248cc93a2cd525e5cf2cf9205ae2fdc1c0bb78e8801ab1da5e5f64"
 }

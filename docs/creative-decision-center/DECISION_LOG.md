@@ -14084,3 +14084,21 @@ image or full old-env restore is not a valid rollback. Finite media cannot retai
 unbounded growing history forever: live acceptance must report actual generation
 rate, package size, remaining horizon, unsupported/pinned backlog and any
 unobserved native generation. See the cold lifecycle contract for the full sequence.
+
+## D176 — Host archive installation verifies immutable runtime source (2026-10-16)
+
+Actual deployment readback proved all three immutable/OCI role images on
+`eb9d4af190632e078a8394514d25f203bcbb7647`; the host Git checkout deliberately
+remained `6755e76b75a17b4d0036cc7bfe03a6aee5b82793`. The initial installer
+incorrectly treated that checkout as release identity and refused before data
+movement or private-service/key authorization. Do not fake/reset the checkout.
+
+Add a separate SHA-reviewed host operator that verifies live image/OCI/process
+identity, mount/key scopes, reviewed host Compose and the exact runtime146-file
+inventory inside the actual image. Its own additional SHA and targeted operator
+tests are recorded separately; the earlier image CI is not new-operator CI.
+Keep the frozen runtime inventory/image and all original bounded private-PG,
+replica, flag and rollback operations. No change to source DB/provider writes,
+163GiB/physical bounds, clocks, retention, historical/current authority or C3.
+The actual next installation and real-original/copy/HTTP/commit/absence/growth
+acceptance remain required; this repair alone grants no success claim.

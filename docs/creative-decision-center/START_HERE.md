@@ -2,6 +2,10 @@
 
 This is the first file future GPT/Codex/Claude chats should read before working on the Adsecute / OmniAds Creative page migration.
 
+For the real deployed-image versus frozen-host-checkout installation boundary,
+read [D176](DECISION_LOG.md#d176--host-archive-installation-verifies-immutable-runtime-source-2026-10-16)
+and [the separately reviewed host operator](../architecture/native-cold-runtime-host-operator.md).
+
 For the default-off automatic lossless archive caller and its permanent tenant
 erasure/rollback boundary, read [D175](DECISION_LOG.md#d175--bounded-automatic-lossless-native-history-and-independent-replica-2026-10-16)
 and [the cold lifecycle contract](../architecture/native-cold-lifecycle.md).

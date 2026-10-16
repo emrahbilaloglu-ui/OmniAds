@@ -1,5 +1,5 @@
 {
-  "manifestHash": "972de0b10a9d725a03ffef674799631dfec1d57422160ca55ab80926557a5a20",
+  "manifestHash": "b0e6ce069f27d7a4850b45cfb3953e3e1016b92f176e4c3fdb356682b1c83f32",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -843,6 +843,10 @@
       "sha256": "43de6d3f05c0d43b6e85a04d4de12e63c274b7f477c8a3505463bd4690df48f8"
     },
     {
+      "path": "docs/architecture/native-cold-runtime-host-operator.md",
+      "sha256": "ed84e4fffdd3c881d053d8516b3a7a2b526cd443d1d2a7c60504a1f54c31d021"
+    },
+    {
       "path": "docs/architecture/native-compact-root-history.md",
       "sha256": "6216ce96962c5b6d45abc60d1d91f373b1f9c44b084a21ce569a0b6ae7019f5c"
     },
@@ -920,7 +924,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "89e7e7d9db321ddf57706d317c59af73ee578aa90a8a24109c32d5946a25dd29"
+      "sha256": "7b36dbbaa2d1fb152d22a5ad8210458f788eaa2e34c779d6aebe1343045c0e86"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -932,7 +936,7 @@
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
-      "sha256": "6b3056981ab9d9b7e0b8f50c30a2f78090e03335504520456e31d28b1213bf37"
+      "sha256": "dc68f89a6ca27a11aa1e8bb571e5a49eee8b19b6b2c96a4dc71217eba536eb32"
     },
     {
       "path": "docs/creative-decision-center/V3_TO_V21_MAPPING.md",
@@ -3549,6 +3553,22 @@
     {
       "path": "scripts/native-storage-batch/tsconfig.json",
       "sha256": "53b13275ed89afc0fac80b21773ac698aad999f67c7d503699e8e91747949084"
+    },
+    {
+      "path": "scripts/ops/__pycache__/install-native-cold-runtime.cpython-313.pyc",
+      "sha256": "d5111434e3097f97891d701463c947c62cbef96b739134695fe9b6162bbaffd5"
+    },
+    {
+      "path": "scripts/ops/install-native-cold-runtime-test.py",
+      "sha256": "e075462e92b8f56876a939a847af4d24aa0c207c4f7f068d009cf95806e38e61"
+    },
+    {
+      "path": "scripts/ops/install-native-cold-runtime.py",
+      "sha256": "33d791bcf8f30e23aea3fb40fb53e29e2fb8b225fa76a4fdd7c8402b1292aeac"
+    },
+    {
+      "path": "scripts/ops/install-native-cold-runtime.test.ts",
+      "sha256": "f7bd319b3f90822cb2d1b3f88904c9e7db663c2dd2d0bacb67810ee50cb0df60"
     },
     {
       "path": "scripts/read-path-write-reachability.ts",

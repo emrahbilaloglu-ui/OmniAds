@@ -13910,5 +13910,7 @@ trigger, schema, provider authority or history removal changes.
 
 The existing eight migrated archive-erasure cases add a localhost-only trigger
 that checks the claiming backend's actual JIT setting when `archive_attempts`
-increases, before archive preparation. Exact CI/full QA must pass; a mocked SET
+increases without replacing its existing checkpoint, before archive preparation.
+Installing a synthetic interruption checkpoint is fixture setup rather than a
+worker claim and is deliberately outside that trigger predicate. Exact CI/full QA must pass; a mocked SET
 string or an idle live queue cannot claim destructive-flow acceptance.

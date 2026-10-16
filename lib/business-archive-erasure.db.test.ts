@@ -66,7 +66,9 @@ describe.skipIf(!seam)("automatic archive erasure on the actual migrated Postgre
       // PostgreSQL, not a mock of the SET string, observes the actual claiming
       // backend before any archive plan can be prepared. Localhost fixture only.
       await db.query(`CREATE FUNCTION owned_archive_claim_jit_guard() RETURNS trigger LANGUAGE plpgsql AS $$
-        BEGIN IF NEW.archive_attempts>OLD.archive_attempts AND current_setting('jit')<>'off' THEN
+        BEGIN IF NEW.archive_attempts>OLD.archive_attempts
+          AND NEW.archive_state IS NOT DISTINCT FROM OLD.archive_state
+          AND current_setting('jit')<>'off' THEN
           RAISE EXCEPTION 'archive claim backend must disable JIT'; END IF; RETURN NEW; END $$;
         CREATE TRIGGER owned_archive_claim_jit_guard BEFORE UPDATE ON business_deletion_jobs
           FOR EACH ROW EXECUTE FUNCTION owned_archive_claim_jit_guard();`);
@@ -145,6 +147,8 @@ describe.skipIf(!seam)("automatic archive erasure on the actual migrated Postgre
   it("resumes the durable plan after publication/unlink interruption without losing archived input keys",async()=>{
     const t=await tenant();await archive(t.id,await hotInput());await enqueueBusinessDeletion(t.id);
     const plan=await withPinnedDbClient(client=>prepareBusinessArchiveErasurePlan(t.id,client));
+    // This fixture installation also replaces archive_state; the guard above
+    // observes real claims, which leave their existing checkpoint unchanged.
     await getDb().query("UPDATE business_deletion_jobs SET status='running',archive_attempts=1,archive_state=$2::jsonb,erasure_started_at=now() WHERE business_ref_id=$1::uuid",[t.id,JSON.stringify({plan,prepared:false})]);
     // Simulates a process loss before publication; persisted source proof must
     // be reused, not rediscovered from possibly incomplete files.

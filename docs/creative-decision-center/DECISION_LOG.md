@@ -14058,8 +14058,11 @@ full bodies are encrypted in the journal; normal current GET parity remains a
 separate acceptance. The earlier409 has no inferred repair or pre-retirement
 causality. Reuse of a natural current result is not a new original generation.
 Keep163GiB, source40GiB plus512MiB, separate app8GiB/replica16GiB floors and
-physical-bounded proven MAIN credit. Cadence5min and rolling15min48 requests/
+physical-bounded proven MAIN credit. Cooldown1min and rolling15min48 requests/
 24MiB potential download budget leave normal-reader headroom; server limits stay.
+Reserve both HTTP phases before C3; never discover the caller's own budget is
+exhausted only after its actual COMMIT. The source's measured new native
+generation cadence requires room to catch up, rather than a global5min delay.
 
 Lifetime replica erasure remains required after writer rollback. Extend the
 existing immediate user-hide/background-owner-cleanup saga to independent remote

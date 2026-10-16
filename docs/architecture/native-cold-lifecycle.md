@@ -66,9 +66,10 @@ Broad retention stays separate/off. Preserve the163GiB business budget,
 independent replica16GiB floors. D174 limits proven reusable native MAIN credit
 by actual physical spare. Dead tuple, TOAST and index estimates grant no credit.
 
-One successful original starts at most every5min. The rolling15min automation
+One successful original has a minimum1min cooldown. The rolling15min automation
 budget is48/64 historical requests and24/32MiB potential downloads per business,
-reserving human capacity. Existing server bounds remain authoritative. Retry
+reserving human capacity. Both HTTP phases are reserved before C3, so the caller
+cannot consume its own post-COMMIT proof budget first. Existing server bounds remain authoritative. Retry
 budget refusals and busy producers within the same finite purpose; never force
 provider jobs, fake a day/cutoff or turn evidence booleans into permission.
 

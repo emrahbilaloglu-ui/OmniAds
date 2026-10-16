@@ -18,7 +18,7 @@ import { createCapacityRequest,createCopyRequest,readReplicaAck,removeReplicaReq
 import { ensureTenantRouting,publishServedOriginal } from "./routing";
 import type { ColdControllerState,ColdUnitState } from "./types";
 
-export const COLD_CADENCE_MS=5*60_000;
+export const COLD_CADENCE_MS=60_000;
 export const COLD_READ_WINDOW_MS=15*60_000;
 export const COLD_AUTOMATION_READ_BUDGET=48; // Leave16/64 for normal historical inspection.
 export function reserveColdReads(state:ColdControllerState,businessId:string,requests:number,downloadBytes:number,now=Date.now()){
@@ -111,7 +111,12 @@ export async function runNativeColdLifecycleTick(stopping:()=>boolean=()=>false)
       unit.phase="published";await saveUnit();
     }
     if(unit.phase==="published"){
-      await active();reserveColdReads(global,unit.businessId,unit.capture!.samples.length,unit.capture!.archiveBytes*2);await saveGlobal();
+      await active();
+      // Reserve BOTH phases before any source retirement. Reserving the second
+      // half only after COMMIT could exhaust our own budget after deleting it.
+      if(!unit.httpBudget){const requests=unit.capture!.samples.length*2,downloadBytes=unit.capture!.archiveBytes*4;
+        reserveColdReads(global,unit.businessId,requests,downloadBytes);await saveGlobal();
+        unit.httpBudget={reservedAt:new Date().toISOString(),requests,downloadBytes};await saveUnit();}
       unit.httpBefore=await collectColdHttpProof(db,unit,config,"before",saveUnit);
       unit.phase="http_verified";await saveUnit();
     }
@@ -134,7 +139,6 @@ export async function runNativeColdLifecycleTick(stopping:()=>boolean=()=>false)
       unit.readback=await runColdChild(unit,"readback");need(unit.readback?.exactUnitAbsent===true&&
         unit.readback.retainedRootsFullBytesMatch===true&&unit.readback.inputEvidence?.match===true,"INDEPENDENT_SOURCE_ABSENCE_AND_RETAINED_BYTES_REQUIRED");
       unit.phase="readback";await saveUnit();
-      reserveColdReads(global,unit.businessId,unit.capture!.samples.length,unit.capture!.archiveBytes*2);await saveGlobal();
       unit.httpAfter=await collectColdHttpProof(db,unit,config,"after",saveUnit);
       const current=(a:ColdUnitState["httpAfter"])=>a!.current.map(({bodySha256,...x})=>x);
       need(archiveCanonical(current(unit.httpBefore))===archiveCanonical(current(unit.httpAfter)),"NORMAL_CURRENT_ROUTE_CHANGED_BY_RETIREMENT");

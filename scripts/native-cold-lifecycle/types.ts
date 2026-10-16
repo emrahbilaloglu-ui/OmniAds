@@ -14,6 +14,7 @@ export interface ColdUnitState {
     privateBytes:number;privateFiles:number;restoredProofSha256:string;privateSocketOnly:boolean};
   capacityRequest?:ReplicaRequest;replicaRequest?:ReplicaRequest;replicaAck?:ReplicaAck;
   publication?:{rootSha256:string;publishedAt:string;previousRootSha256:string;existing:boolean};
+  httpBudget?:{reservedAt:string;requests:number;downloadBytes:number};
   httpBefore?:{proofSha256:string;requests:number;observedAt:string;current:CurrentReadBaseline[]};
   httpAfter?:{proofSha256:string;requests:number;observedAt:string;current:CurrentReadBaseline[]};
   retirement?:{committed:boolean;preparedSha256:string;producerExclusionRelease:string};

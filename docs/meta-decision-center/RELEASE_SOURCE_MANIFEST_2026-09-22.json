@@ -1,5 +1,5 @@
 {
-  "manifestHash": "f1ced06ea8b655579c73a22d63d59845d2e359bf685de056927e4f43d65e9bdb",
+  "manifestHash": "d3899a8cd7b8b57bc1f007c6f00fee3e79283ca18a88ea3c0524f8603a312204",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -840,7 +840,7 @@
     },
     {
       "path": "docs/architecture/native-cold-lifecycle.md",
-      "sha256": "9f9ce330c6f11f05d70284e012a04e8a52f6069d5d6464f1928401670212744c"
+      "sha256": "f8ec9468fa8d3ae983b445e31e7203cd4cd57c657a778a2911649e799d7f69ad"
     },
     {
       "path": "docs/architecture/native-compact-root-history.md",
@@ -920,7 +920,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "9a8cdf99599a2b4f69bffa33a4d1631c01228bc94c1558578d12e9812949885f"
+      "sha256": "3adceb47b803d8748150285acca0b2471c36f99bdbef6e58399beb26a37ddae3"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -3268,7 +3268,7 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/controller.ts",
-      "sha256": "63670f74b88d245a77f13b8cac5cb50de6ddd4b655a5ae9828212206f076395b"
+      "sha256": "59e1e0279f9501e537836ba5a0e30bb4a72f4ff6a8018d2ef62be13ab0765771"
     },
     {
       "path": "scripts/native-cold-lifecycle/erasure.test.ts",
@@ -3352,11 +3352,11 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/source-inventory.json",
-      "sha256": "8243a2c8e40687ad7127f08385045b79c4a6757914f4a56488f4d040aa7cbb1b"
+      "sha256": "5c5f73092bb37b42ddebe7cdcec3e394dd007475308bef0fa870e40bc4135af5"
     },
     {
       "path": "scripts/native-cold-lifecycle/types.ts",
-      "sha256": "3146b33ec0d411c14692b1950178d962ffd5ad86fcbafe6d3446a917dfe9f3dc"
+      "sha256": "0afd0042c2b6a4221081e72cabe59fab7673a04cfe7c705e21eefec696de82e0"
     },
     {
       "path": "scripts/native-cold-lifecycle/unit-child.ts",

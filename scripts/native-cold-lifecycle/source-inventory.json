@@ -498,8 +498,8 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/controller.ts",
-      "sha256": "63670f74b88d245a77f13b8cac5cb50de6ddd4b655a5ae9828212206f076395b",
-      "bytes": 14920
+      "sha256": "59e1e0279f9501e537836ba5a0e30bb4a72f4ff6a8018d2ef62be13ab0765771",
+      "bytes": 15148
     },
     {
       "path": "scripts/native-cold-lifecycle/files.ts",
@@ -578,8 +578,8 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/types.ts",
-      "sha256": "3146b33ec0d411c14692b1950178d962ffd5ad86fcbafe6d3446a917dfe9f3dc",
-      "bytes": 2745
+      "sha256": "0afd0042c2b6a4221081e72cabe59fab7673a04cfe7c705e21eefec696de82e0",
+      "bytes": 2817
     },
     {
       "path": "scripts/native-cold-lifecycle/unit-child.ts",
@@ -732,5 +732,5 @@
       "bytes": 4644
     }
   ],
-  "sourceInventorySha256": "a30f732414a26ea7b13fcff2a5a78ff706f6a9fb4edc03925ce4ca8d29a5cd90"
+  "sourceInventorySha256": "e99f864daccb8f4e517d0bf06f2d935bc63098092a68437b194baf650d150a4a"
 }

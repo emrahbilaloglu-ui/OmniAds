@@ -68,6 +68,7 @@ export function validateBusinessArchivePointer(value: unknown, base: BusinessArc
   const p = value as BusinessArchivePointer;
   archiveNeed(Object.keys(p).sort().join(",") === "baseFingerprint,catalog,contract,routing"
     && [BUSINESS_ARCHIVE_POINTER_CONTRACT,BUSINESS_ARCHIVE_TENANT_POINTER_CONTRACT].includes(p.contract)
+    && (p.contract!==BUSINESS_ARCHIVE_TENANT_POINTER_CONTRACT||base.routingEnabled)
     && p.baseFingerprint === businessArchiveBaseFingerprint()
     && base.localRoot && base.transport === "filesystem" && p.catalog
     && Object.keys(p.catalog).sort().join(",") === "path,sha256"
@@ -95,8 +96,16 @@ export async function activateBusinessArchivePointer(pointer:BusinessArchivePoin
   // Only an exact complete previous intent can be reused. Partial/foreign
   // files block the publisher; they never become an active pointer.
   let existed=false;
-  try{await readSafeArchiveFile(temporary,4096,archiveDigest(bytes));existed=true;}
-  catch(e){if((e as NodeJS.ErrnoException).code!=="ENOENT")throw e;}
+  try{
+    const old=await open(temporary,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
+    let complete=false;
+    try{const s=await old.stat();archiveNeed(s.isFile()&&s.nlink===1&&!(s.mode&0o077)&&s.size<=bytes.length);
+      const b=Buffer.alloc(s.size+1),r=await old.read(b,0,b.length,0),end=await old.stat();
+      archiveNeed(r.bytesRead===s.size&&end.size===s.size&&end.mtimeMs===s.mtimeMs&&end.ctimeMs===s.ctimeMs&&
+        b.subarray(0,r.bytesRead).equals(bytes.subarray(0,s.size)));complete=s.size===bytes.length;
+    }finally{await old.close();}
+    if(complete)existed=true;else await unlink(temporary);
+  }catch(e){if((e as NodeJS.ErrnoException).code!=="ENOENT")throw e;}
   if(!existed){const f=await open(temporary,constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);
     try{await f.writeFile(bytes);await f.sync();}catch(e){await unlink(temporary).catch(()=>undefined);throw e;}finally{await f.close();}}
   archiveNeed(archiveCanonical(await resolveBusinessArchiveConfiguration())===archiveCanonical(expected));
@@ -104,7 +113,7 @@ export async function activateBusinessArchivePointer(pointer:BusinessArchivePoin
   const directory=await open(parent,constants.O_RDONLY|constants.O_DIRECTORY|constants.O_NOFOLLOW);
   try{await directory.sync();}finally{await directory.close();}
   const actual=await resolveBusinessArchiveConfiguration();
-  archiveNeed(actual.rootSha256===pointer.routing?.sha256&&actual.catalogSha256===pointer.catalog.sha256);
+  archiveNeed(actual.rootSha256===(pointer.routing?.sha256??null)&&actual.catalogSha256===pointer.catalog.sha256);
   return actual;
 }
 /** The writer is the dedicated offboarding role, never a buyer/API request.

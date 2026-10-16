@@ -7,6 +7,13 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { getDb, withPinnedDbClient } from "@/lib/db";
 import { listUserBusinesses, findMembership } from "@/lib/access-membership";
 import { archiveDigest } from "@/lib/business-archive-configuration";
+import { BUSINESS_ARCHIVE_TENANT_POINTER_CONTRACT,activateBusinessArchivePointer,businessArchiveBaseFingerprint,
+  resolveBusinessArchiveConfiguration } from "@/lib/business-archive-configuration";
+import { buildNativeHistoricalCatalogRouting,nativeHistoricalGenerationBucket } from "@/lib/creative-decision-engine/native-historical-catalog-routing";
+import { prepareTenantCatalogMigration,prepareTenantCatalogAppend } from "@/lib/creative-decision-engine/native-tenant-catalog";
+import { persistTenantCatalogDelta } from "@/lib/creative-decision-engine/native-tenant-catalog-store";
+import { persistLocalNativeArchive } from "@/lib/creative-decision-engine/native-historical-local-store";
+import { assertNoBusinessNativeArchive } from "@/lib/business-deletion-files";
 import { prepareBusinessArchiveErasurePlan } from "@/lib/business-archive-erasure";
 import { runBusinessArchiveErasureTick } from "@/lib/business-archive-erasure-worker";
 import { enqueueBusinessDeletion, runBusinessDeletionWorkerTick } from "@/lib/business-deletion-jobs";
@@ -53,6 +60,32 @@ async function archive(business: string, inputEvidenceRowJson?: string) {
   vi.stubEnv("ENGINE_V3_NATIVE_ARCHIVE_CATALOG_PATH",filename);
   vi.stubEnv("ENGINE_V3_NATIVE_ARCHIVE_CATALOG_SHA256",archiveDigest(bytes));
   return f;
+}
+async function tenantArchives(businessId:string,rows:(string|undefined)[],foreignId:string){
+  const store=join(root,"routing-cas-v1");await mkdir(store,{mode:0o700});
+  const legacy=Buffer.from(JSON.stringify({contract:"native-historical-archive-catalog.v1",entries:[]})),sha=archiveDigest(legacy);
+  const old=buildNativeHistoricalCatalogRouting({legacy:{content:legacy,sha256:sha},leaves:[]});
+  let delta=prepareTenantCatalogMigration({root:old.files.find(f=>f.kind==="root")!.content,rootSha256:old.root.sha256,legacy,shards:[],leaves:[]});
+  await persistTenantCatalogDelta(store,delta,"a".repeat(12));
+  let foreign:Awaited<ReturnType<typeof businessArchiveFixture>>|undefined;
+  for(let i=0;i<=rows.length;i++){
+    const f=await businessArchiveFixture(i===rows.length?foreignId:businessId,{compactRoot:true,tenantObjects:true,inputEvidenceRowJson:rows[i]});
+    if(i===rows.length)foreign=f;
+    vi.stubEnv("ENGINE_V3_NATIVE_ARCHIVE_ENCRYPTION_KEY_ID",f.keyId);vi.stubEnv("ENGINE_V3_NATIVE_ARCHIVE_ENCRYPTION_KEY_HEX",f.key.toString("hex"));
+    await persistLocalNativeArchive(root,f.bytes,f.entry,{layout:"tenant.v1"});
+    const content=delta.files.find(f=>f.kind==="root")!.content,raw=JSON.parse(content.toString("utf8"));
+    const ref=raw.shards.find((s:{bucket:string})=>s.bucket===nativeHistoricalGenerationBucket(f.generation.jobRunId));
+    delta=prepareTenantCatalogAppend({root:content,rootSha256:delta.root.sha256,legacySha256:sha,
+      shard:ref?await readFile(join(store,"shard",`${ref.sha256}.json`)):null,leaf:f.leaf!});
+    await persistTenantCatalogDelta(store,delta,`b${String(i).padStart(11,"0")}`);
+  }
+  const filename=join(root,"filtered",`${sha}.json`);await mkdir(dirname(filename),{mode:0o700});await writeFile(filename,legacy,{mode:0o600});
+  vi.stubEnv("ENGINE_V3_NATIVE_ARCHIVE_CATALOG_PATH",filename);vi.stubEnv("ENGINE_V3_NATIVE_ARCHIVE_CATALOG_SHA256",sha);
+  vi.stubEnv("ENGINE_V3_NATIVE_ARCHIVE_CATALOG_ROUTING_ENABLED","true");vi.stubEnv("ENGINE_V3_NATIVE_ARCHIVE_ROUTING_ROOT",store);
+  vi.stubEnv("ENGINE_V3_NATIVE_ARCHIVE_ROUTING_ROOT_SHA256",delta.root.sha256);
+  await activateBusinessArchivePointer({contract:BUSINESS_ARCHIVE_TENANT_POINTER_CONTRACT,baseFingerprint:businessArchiveBaseFingerprint(),
+    catalog:{path:`filtered/${sha}.json`,sha256:sha},routing:{directory:"routing-cas-v1",sha256:delta.root.sha256}},await resolveBusinessArchiveConfiguration());
+  return foreign!;
 }
 describe.skipIf(!seam)("automatic archive erasure on the actual migrated PostgreSQL schema",()=>{
   let observedIndexAdded=false;
@@ -103,6 +136,29 @@ describe.skipIf(!seam)("automatic archive erasure on the actual migrated Postgre
     const [row]=await getDb().query("SELECT archive_state,archive_attempts,erasure_started_at,hidden_at IS NOT NULL AS hidden FROM business_deletion_jobs WHERE business_ref_id=$1::uuid",[t.id]);
     expect(row).toMatchObject({archive_state:null,archive_attempts:0,erasure_started_at:null,hidden:true});
   });
+  it("drains tenant pages before DB erasure, carries actual live orphan/shared keys and preserves foreign original bytes",async()=>{
+    const t=await tenant(),db=new Client({connectionString:process.env.DATABASE_URL});await db.connect();
+    try{
+      const foreign=await seedTenant(db,1);owned.push(foreign.business);
+      const producer=await seedCalibration(db,foreign,"2026-09-23","2026-09-23T12:00:00Z");
+      await seedGeneration(db,foreign,{date:"2026-09-23",clock:"2026-09-23T12:01:00Z",finishedAt:"2026-09-23T12:02:00Z",producer,perAccount:[1],tag:"tenant-shared"});
+      const {rows:[shared]}=await db.query("SELECT to_jsonb(i)::text b FROM engine_v3_ad_decision_input_evidence i JOIN engine_v3_ad_decision_evaluations e USING(contract_version,input_hash) WHERE e.business_ref_id=$1::uuid LIMIT 1",[foreign.business]);
+      const orphan=await hotInput(),foreignBefore=(await db.query("SELECT to_jsonb(e)::text b FROM engine_v3_ad_decision_evaluations e WHERE business_ref_id=$1::uuid ORDER BY id",[foreign.business])).rows;
+      const f=await tenantArchives(t.id,[orphan,shared.b,undefined,undefined,undefined],foreign.business);
+      const cipherBefore=await readFile(join(root,f.entry.object.key));await enqueueBusinessDeletion(t.id);
+      expect(await findMembership({userId:t.user,businessId:t.id})).toBeNull();
+      expect(await runBusinessArchiveErasureTick()).toMatchObject({outcome:"archive_page_completed"});
+      expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"idle"});
+      const [page]=await getDb().query("SELECT archive_attempts,archive_state FROM business_deletion_jobs WHERE business_ref_id=$1::uuid",[t.id]);
+      expect(page!.archive_attempts).toBe(0);expect(page!.archive_state).toMatchObject({prepared:false,nextPage:true});
+      expect(await runBusinessArchiveErasureTick()).toMatchObject({outcome:"prepared"});await assertNoBusinessNativeArchive(t.id);
+      expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"completed"});
+      const key=JSON.parse(orphan);expect((await db.query("SELECT 1 FROM engine_v3_ad_decision_input_evidence WHERE contract_version=$1 AND input_hash=$2::character(64)",[key.contract_version,key.input_hash])).rows).toEqual([]);
+      const sk=JSON.parse(shared.b);expect((await db.query("SELECT to_jsonb(i)::text b FROM engine_v3_ad_decision_input_evidence i WHERE contract_version=$1 AND input_hash=$2::character(64)",[sk.contract_version,sk.input_hash])).rows).toEqual([shared]);
+      expect((await db.query("SELECT to_jsonb(e)::text b FROM engine_v3_ad_decision_evaluations e WHERE business_ref_id=$1::uuid ORDER BY id",[foreign.business])).rows).toEqual(foreignBefore);
+      expect(await readFile(join(root,f.entry.object.key))).toEqual(cipherBefore);
+    }finally{await db.end();}
+  },30_000);
   it("hides immediately, skips unprepared jobs, automatically purges archived-only hot inputs and cascades the checkpoint",async()=>{
     const t=await tenant(),input=JSON.parse(await hotInput()),f=await archive(t.id,JSON.stringify(input));
     await enqueueBusinessDeletion(t.id);

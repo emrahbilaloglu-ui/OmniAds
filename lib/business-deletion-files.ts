@@ -6,6 +6,7 @@ import { getDb } from "@/lib/db";
 import { openNativeHistoricalArchiveCatalog } from "@/lib/creative-decision-engine/native-historical-archive";
 import { buildNativeHistoricalCatalogRouting } from "@/lib/creative-decision-engine/native-historical-catalog-routing";
 import { resolveBusinessArchiveConfiguration } from "@/lib/business-archive-configuration";
+import { assertNoTenantArchiveRecords } from "@/lib/native-tenant-erasure";
 
 export class BusinessExternalCleanupError extends Error {}
 function refuse(): never { throw new BusinessExternalCleanupError("external_cleanup_required"); }
@@ -45,6 +46,9 @@ export async function assertNoBusinessNativeArchive(businessId: string) {
   const directory = configuration.routingDirectory;
   const rootSha = configuration.rootSha256;
   if (!directory || !rootSha || !isAbsolute(directory) || await realpath(directory) !== directory) refuse();
+  if(directory===join(configuration.localRoot??"","routing-cas-v1")){
+    await assertNoTenantArchiveRecords(businessId);return;
+  }
   const rootBytes = await metadata(join(directory, "root", `${rootSha}.json`), rootSha);
   const root = JSON.parse(rootBytes.toString("utf8")) as { shards: { sha256: string; bytes: number }[] };
   if (!Array.isArray(root.shards) || root.shards.length > 256) refuse();

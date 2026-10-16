@@ -2,6 +2,12 @@
 
 This is the first file future GPT/Codex/Claude chats should read before working on the Adsecute / OmniAds Creative page migration.
 
+For compact whole-original scope and incremental tenant archive infrastructure,
+read [D174](DECISION_LOG.md#d174--compact-whole-original-scope-and-incremental-tenant-archive-infrastructure-2026-10-16)
+and [the tenant lifecycle contract](../architecture/native-tenant-archive-lifecycle.md).
+Infrastructure and owned PostgreSQL proof do not establish automatic cadence,
+durable replica/private-copy acceptance or production storage balance.
+
 For unchanged Meta publication observations and proven reusable native MAIN-heap
 capacity accounting, read [D170](DECISION_LOG.md#d170--preserve-unchanged-meta-publications-and-account-for-reusable-native-heap-2026-10-16).
 Both flags default off. Original decision/source clocks, raw allocation,

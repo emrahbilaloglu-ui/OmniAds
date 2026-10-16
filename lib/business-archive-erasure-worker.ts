@@ -4,7 +4,9 @@ import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
 import { DbGrowthFenceRefusal, evaluateDbGrowthFence } from "@/lib/sync/db-growth-fence";
 import { BUSINESS_ERASURE_LOCK_NAMESPACE } from "@/lib/business-deletion";
 import { isDemoBusinessId } from "@/lib/demo-business";
-import { archiveNeed } from "@/lib/business-archive-configuration";
+import { archiveNeed,resolveBusinessArchiveConfiguration,BUSINESS_ARCHIVE_TENANT_ROUTING_DIRECTORY } from "@/lib/business-archive-configuration";
+import { prepareTenantArchiveErasurePlan,applyTenantArchiveErasurePlan,validateTenantArchiveErasurePlan,
+  assertNoTenantArchiveRecords,TENANT_ERASURE_CONTRACT } from "@/lib/native-tenant-erasure";
 import { applyBusinessArchiveErasurePlan, BUSINESS_ARCHIVE_ERASURE_BOUNDS, prepareBusinessArchiveErasurePlan,
   validateBusinessArchiveErasurePlan, type BusinessArchiveErasureState } from "@/lib/business-archive-erasure";
 
@@ -54,8 +56,13 @@ export async function runBusinessArchiveErasureTick() {
         const [started] = [new Date(job.erasure_started_at).getTime()];
         archiveNeed(Number.isFinite(started));
         const deadlineAtMs = Math.min(Date.now() + BUSINESS_ARCHIVE_ERASURE_BOUNDS.phaseMs, started + 30 * 60_000);
-        const plan = job.archive_state?.plan ?? await prepareBusinessArchiveErasurePlan(job.business_ref_id, client, deadlineAtMs);
-        validateBusinessArchiveErasurePlan(plan, job.business_ref_id);
+        const config=await resolveBusinessArchiveConfiguration();
+        const tenant=config.routingDirectory===`${config.localRoot}/${BUSINESS_ARCHIVE_TENANT_ROUTING_DIRECTORY}`;
+        const plan = job.archive_state?.plan&&!job.archive_state.nextPage?job.archive_state.plan:
+          tenant?await prepareTenantArchiveErasurePlan(job.business_ref_id,client,deadlineAtMs,job.archive_state?.plan.inputKeys):
+          await prepareBusinessArchiveErasurePlan(job.business_ref_id, client, deadlineAtMs);
+        if(plan.contract===TENANT_ERASURE_CONTRACT)validateTenantArchiveErasurePlan(plan,job.business_ref_id);
+        else validateBusinessArchiveErasurePlan(plan, job.business_ref_id);
         archiveNeed(Date.now() < deadlineAtMs);
         // This checkpoint COMMIT precedes EVERY publication/unlink. Restarting
         // the process cannot lose the frozen input hashes or exact file proofs.
@@ -63,14 +70,19 @@ export async function runBusinessArchiveErasureTick() {
           WHERE business_ref_id=$1::uuid AND attempt_id=$2::uuid`,
         [job.business_ref_id, job.attempt_id, JSON.stringify({ plan, prepared: false })]);
         archiveNeed(saved.rowCount === 1);
-        await applyBusinessArchiveErasurePlan(plan, deadlineAtMs, async next => { phase = next; });
+        let remaining=false;
+        if(plan.contract===TENANT_ERASURE_CONTRACT){
+          remaining=(await applyTenantArchiveErasurePlan(plan,deadlineAtMs,async next=>{phase=next;})).remaining;
+          if(!remaining)await assertNoTenantArchiveRecords(job.business_ref_id);
+        }else await applyBusinessArchiveErasurePlan(plan, deadlineAtMs, async next => { phase = next; });
         const completed = await client.query(`UPDATE business_deletion_jobs SET archive_state=$3::jsonb,
+          archive_attempts=CASE WHEN $4::boolean THEN 0 ELSE archive_attempts END,
           status='queued',error_code=NULL,error_tables='{}',updated_at=now()
           WHERE business_ref_id=$1::uuid AND attempt_id=$2::uuid`,
-        [job.business_ref_id, job.attempt_id, JSON.stringify({ plan, prepared: true })]);
+        [job.business_ref_id, job.attempt_id, JSON.stringify({ plan, prepared: !remaining,...(remaining?{nextPage:true}:{}) }),remaining]);
         archiveNeed(completed.rowCount === 1);
         console.info("[business archive erasure] prepared");
-        return { outcome: "prepared" };
+        return { outcome: remaining?"archive_page_completed":"prepared" };
       } catch {
         await client.query(`UPDATE business_deletion_jobs SET status='failed',error_code='external_cleanup_required',
           error_tables=$3::text[],updated_at=now() WHERE business_ref_id=$1::uuid AND attempt_id=$2::uuid`,

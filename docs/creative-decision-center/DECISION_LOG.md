@@ -13977,3 +13977,53 @@ physical reclaim or sustained-growth proof. Source publication must separately
 run canonical QA/CI and real runtime compatibility acceptance. Before any v4
 publication the previous release remains a rollback; afterwards retain a
 v4-capable reader and the actual immutable catalog/key/copies.
+
+## D174 — Compact whole-original scope and incremental tenant archive infrastructure (2026-10-16)
+
+The D173 actual2,517-row original needs a separately reviewed collector and
+maintenance scope, rather than silently widening the consumed finite operator.
+Add explicit unit configv3 with exact compact-root/tenant-object markers,
+one whole original at most3,200 evaluations/four contexts and all old byte,
+query, lock, pin, unknown-consumer, original-parent/snapshot and C3 bounds.
+The old finite batch/configv2 remains1,134 and rejects the new unit config.
+Compact maintenance additionally requires actual fresh separate-replica16GiB
+and app8GiB floors, with the same40GiB source floor/512MiB reserve. No caller
+is enabled by this infrastructure or by asserted evidence booleans.
+
+Add routing rootv2/`tenant-sharded.v1`, pointerv2/`routing-cas-v1` and explicit
+`tenant.v1` ciphertext paths. Verify/copy the small old graph once; each append
+stages only one tenant leaf, one bucket and one root. All existing formats,
+wire/decode/cache bounds, exact generation/GCM authentication and strict fixed
+digest filesystem verification remain. Readers reload the atomic pointer.
+
+Complete offboarding for that namespace before any future caller can enable it.
+The D169 global exclusion and immediate hidden-user boundary remain. A finite
+durable page authenticates at most four selected leaves; current/inactive
+global routing metadata is bounded and verified, and foreign leaves/ciphertext
+are preserved without a whole foreign-forest decode. Old route metadata outside
+the new current graph can be removed only after publication plus the existing
+10s reader deadline and1s grace. No retained original is age-pruned.
+Carry only actual live new-page input rows by full hash through indexed400-key
+probes; D150's zero-reference retirement plus the final business transaction's
+unchanged GLOBAL GC/writer exclusion protects absent/shared keys. The legacy
+saga keeps its existing absent-key drift proof. Reset crash attempts only after
+an acknowledged completed page, persist continuation, keep the same absolute
+30m budget and owner-only failure channel. Final DB erasure requires independently
+absent selected routes, inactive identifying metadata, leaves and ciphertext.
+Future private copies/replicas must join this barrier before enabling a publisher.
+
+D170 free-space credit is also physically bounded: credit at most actual spare
+above the40GiB floor plus512MiB reserve and report total proven/uncredited MAIN
+free separately. The normal raw-first physical check and full credited-headroom
+projection remain; no budget increase, dead/TOAST/index estimates or override.
+Maintenance validates the complete optional accounting tuple consistently.
+
+Actual owned PG16/full-DDL3200 acceptance preserves every row/ID/clock/hash,
+restores all tables, commits the C3 challenge, removes exactly3200eval/four
+contexts and3199zero-reference inputs, and preserves the one shared input and
+all foreign/retained rows. The old collector/batch and3201-row compact case
+refuse. Local metadata/worker and paged-erasure crash/foreign-preservation
+tests complement that proof; production cadence/copies/HTTP and growth balance
+remain separate acceptance. See the tenant lifecycle architecture for rollback:
+after new format publication retain capable readers/current pointers and disable
+new publication; never roll back to erased history or claim owned QA as live.

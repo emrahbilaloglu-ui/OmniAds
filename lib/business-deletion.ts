@@ -9,6 +9,7 @@ import { assertBusinessExternalDataRemoved, BusinessExternalCleanupError } from 
 import { deleteBusinessReleaseReceipts, deleteBusinessWorkerHistory, BusinessControlReceiptCleanupError } from "@/lib/business-deletion-control-receipts";
 import { deleteBackgroundBusinessRoot } from "@/lib/business-deletion-root";
 import { archiveDigest } from "@/lib/business-archive-configuration";
+import { TENANT_ERASURE_CONTRACT,validateTenantArchiveErasurePlan } from "@/lib/native-tenant-erasure";
 import { assertArchivedInputPointPlan, validateBusinessArchiveErasurePlan,
   type BusinessArchiveErasureState, type ArchivedBusinessInputKey } from "@/lib/business-archive-erasure";
 import { prepareBusinessProviderAccountErasure, BusinessProviderAccountCleanupError,
@@ -648,7 +649,9 @@ export async function deleteBusinessWithData(businessId: string,
     // plan or its archived-only keys after their ciphertext has been removed.
     if (archiveJob?.archive_state || process.env.BUSINESS_ARCHIVE_ERASURE_ENABLED === "true") {
       if (archiveJob?.archive_state?.prepared !== true) throw new BusinessDeletionError("external_cleanup_required");
-      try { validateBusinessArchiveErasurePlan(archiveJob.archive_state.plan, businessId); }
+      try { const plan=archiveJob.archive_state.plan;
+        if(plan.contract===TENANT_ERASURE_CONTRACT)validateTenantArchiveErasurePlan(plan,businessId);
+        else validateBusinessArchiveErasurePlan(plan, businessId); }
       catch { throw new BusinessDeletionError("external_cleanup_required"); }
       archivedInputKeys = archiveJob.archive_state.plan.inputKeys;
     }

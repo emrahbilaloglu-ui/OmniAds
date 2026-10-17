@@ -2,6 +2,11 @@
 
 This is the first file future GPT/Codex/Claude chats should read before working on the Adsecute / OmniAds Creative page migration.
 
+For truthful shared-worker availability and bounded status/detail readers, read
+[D180](DECISION_LOG.md#d180--separate-shared-worker-availability-and-bound-status-api-read-work-2026-10-18).
+Provider progress clocks, complete generation integrity and historical authority
+remain separate from process liveness and read performance.
+
 For history-preserving raw payload interning and its reference-reader/rollback
 boundary, read [D178](DECISION_LOG.md#d178--preserve-raw-observations-while-interning-identical-payloads-2026-10-17).
 Implementation, real PG proof and live acceptance remain distinct.

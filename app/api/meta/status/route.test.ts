@@ -254,6 +254,24 @@ function getUtcTodayIso() {
 }
 
 describe("GET /api/meta/status", () => {
+  it("keeps provider freshness separate from a proven shared process waiting on another provider", async () => {
+    const providerAt = "2026-04-13T11:50:00.000Z";
+    const processAt = "2026-04-13T11:59:50.000Z";
+    vi.mocked(workerHealth.getProviderWorkerHealthState).mockResolvedValueOnce({
+      workerHealthy: true, hasFreshHeartbeat: false, heartbeatAgeMs: 600000,
+      providerWorkerId: "current:meta", workerFreshnessState: "stale", lastHeartbeatAt: providerAt,
+      matchedWorkerId: null, businessWorkerFreshnessState: null, businessLastHeartbeatAt: null,
+      sharedProcess: { workerId: "current", lastHeartbeatAt: processAt, heartbeatAgeMs: 10000, activeProviderScope: "google_ads", waitingForProviderTurn: true },
+    } as never);
+    const response = await GET(new NextRequest("http://localhost/api/meta/status?businessId=biz_1"));
+    const body = await response.json();
+    expect(response.headers.get("server-timing")).toMatch(/total;dur=/);
+    expect(body.operations).toMatchObject({ workerHealthy: true, providerHeartbeatFresh: false,
+      providerWorker: { workerId: "current:meta", lastHeartbeatAt: providerAt, freshnessState: "stale" },
+      businessWorker: { workerId: null, lastHeartbeatAt: null, freshnessState: null },
+      sharedProcess: { lastHeartbeatAt: processAt, waitingForProviderTurn: true } });
+    expect(body.completionBlockers).not.toContain("operations_worker_offline");
+  });
   it("exposes refused admission and disables work repair without hiding healthy worker evidence", async () => {
     vi.mocked(workerHealth.getProviderWorkerHealthState).mockResolvedValueOnce({ workerHealthy: true, heartbeatAgeMs: 1_000, consumeStage: "capacity_refused" } as never);
     vi.mocked(evaluateDbGrowthFence).mockResolvedValueOnce({ allowed: false, reason: "database_budget_exceeded", evaluatedAt: new Date().toISOString() } as never);

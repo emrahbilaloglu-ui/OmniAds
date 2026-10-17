@@ -23,8 +23,13 @@
     },
     {
       "path": "app/api/creatives/decision-engine-v3/evidence/route.ts",
-      "sha256": "88cc90c46e002c9522115d1369036b52eb376dfc4e25ddfedf588ede9e4bb7b6",
-      "bytes": 26419
+      "sha256": "b9eb9237a03256398622a24a7c657731c6d36a187edb96a12ccfe9142e54c79f",
+      "bytes": 26784
+    },
+    {
+      "path": "app/api/meta/account-pulse/route.ts",
+      "sha256": "968f0d8dc97ae45447f392b11640fb33363c854fe11ce5a18928356bac5388ed",
+      "bytes": 33581
     },
     {
       "path": "app/api/meta/creative-thumbnail/route.ts",
@@ -33,8 +38,13 @@
     },
     {
       "path": "app/api/meta/decisions-workspace/route.ts",
-      "sha256": "9f782fce16d32194cf4df80eea282ae2edb7720b81f1b7e84b06c937808e4705",
-      "bytes": 112793
+      "sha256": "20a4c456518e9340dd8c3bd5aadd2eade7546ed8fb2dc796b4e411f9d9d693ce",
+      "bytes": 113740
+    },
+    {
+      "path": "app/api/meta/status/route.ts",
+      "sha256": "a2907c7f45258538add850180f06de268c258da18264d0ccc53723a02039a8eb",
+      "bytes": 110282
     },
     {
       "path": "docker-compose.yml",
@@ -317,9 +327,14 @@
       "bytes": 33233
     },
     {
+      "path": "lib/meta/status-types.ts",
+      "sha256": "36ba69fc412cf91d961edb9123ba04a58cf13dc9f26b42403eea1782a0661f61",
+      "bytes": 20988
+    },
+    {
       "path": "lib/meta/warehouse.ts",
-      "sha256": "78c71879ce9f5a783fb8ae6a8cad66b7dff2454e41fcc9adc19d84d201e9a724",
-      "bytes": 541344
+      "sha256": "0e32f2d87be2748a1c8a91e5669c4ed43c742399e66b0fa8d36778f7b561dbe8",
+      "bytes": 542050
     },
     {
       "path": "lib/migration-verification.ts",
@@ -390,6 +405,11 @@
       "path": "lib/sync/raw-payload-storage.ts",
       "sha256": "d6a80da7021239a8236f1d02d6f0f3293f0248e92c9b977ab29e5c9251b2f564",
       "bytes": 9203
+    },
+    {
+      "path": "lib/sync/worker-health.ts",
+      "sha256": "9357d13877ce2e98136d064a219e65ba4b858bda2414c6fd9a2a3e9e5a8f3c60",
+      "bytes": 30004
     },
     {
       "path": "package-lock.json",
@@ -522,6 +542,11 @@
       "bytes": 4447
     },
     {
+      "path": "scripts/meta-status-api-readers-pg.ts",
+      "sha256": "4cf1fa6a8687eddfa5bb1f460711a9e49e84738f1f2a8c48c377e7ee536c7e14",
+      "bytes": 7718
+    },
+    {
       "path": "scripts/meta/creative-day-source-evidence-repair.ts",
       "sha256": "3aace5535fd78e435562b18bae7c6c02978ba4f44437783e4fe9eff559be880a",
       "bytes": 36428
@@ -603,8 +628,8 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/inventory.ts",
-      "sha256": "c0ae93308d03a2eb3ed34e50f07228dfa398dc555ee8fe5f6e906bbba510f01b",
-      "bytes": 3862
+      "sha256": "741835b728d802579c178ce1e01848c036ce3792bba664344403909ad1fa0679",
+      "bytes": 3991
     },
     {
       "path": "scripts/native-cold-lifecycle/mirror-endpoint.py",
@@ -802,5 +827,5 @@
       "bytes": 4644
     }
   ],
-  "sourceInventorySha256": "badc40479f91791486f9405564b76c8a6e5264cf0a12461354acba991a1aa58d"
+  "sourceInventorySha256": "a99e3c9e7656151d5743f39978924b7e4f76bef600b3013d47bffc4d81170212"
 }

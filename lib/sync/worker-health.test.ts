@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   getProviderScopeWorkerObservation,
+  getProviderSharedProcessObservation,
   selectProviderWorkerForBusiness,
 } from "@/lib/sync/worker-health";
 
@@ -96,7 +97,56 @@ describe("selectProviderWorkerForBusiness", () => {
   });
 });
 
+describe("shared process availability does not advance provider evidence", () => {
+  const nowMs = Date.parse("2026-10-18T00:00:00Z");
+  function workers() {
+    const boot = { workerBuildId: "current-build", workerStartedAt: "2026-10-17T23:00:00Z" };
+    return [
+      { workerId: "worker:meta", providerScope: "meta", status: "idle", workerFreshnessState: "stale" as const,
+        lastHeartbeatAt: "2026-10-17T23:50:00Z", metaJson: { ...boot } },
+      { workerId: "worker", providerScope: "all", status: "running", workerFreshnessState: "online" as const,
+        lastHeartbeatAt: "2026-10-17T23:59:45Z", metaJson: { ...boot, activeProviderScope: "google_ads" } },
+    ];
+  }
+  it("recognizes an exact live boot working another provider while Meta's own clock stays stale", () => {
+    const rows = workers();
+    expect(getProviderSharedProcessObservation({ providerScope: "meta", staleThresholdMs: 180000, nowMs, workers: rows }))
+      .toMatchObject({ workerId: "worker", waitingForProviderTurn: true, heartbeatAgeMs: 15000 });
+    expect(getProviderScopeWorkerObservation({ providerScope: "meta", staleThresholdMs: 180000, nowMs, workers: rows }))
+      .toMatchObject({ hasFreshHeartbeat: false, lastHeartbeatAt: "2026-10-17T23:50:00.000Z" });
+  });
+  it.each(["different_process", "different_build", "different_boot", "stale_process", "future_process", "stopped_process", "disabled_provider", "same_scope", "missing_provider", "admission_refused"])
+    ("refuses an unproven shared process: %s", (reason) => {
+      const rows = workers();
+      if (reason === "different_process") rows[1]!.workerId = "other-worker";
+      if (reason === "different_build") rows[1]!.metaJson.workerBuildId = "old-build";
+      if (reason === "different_boot") rows[1]!.metaJson.workerStartedAt = "2026-10-17T22:00:00Z";
+      if (reason === "stale_process") rows[1]!.lastHeartbeatAt = "2026-10-17T23:50:00Z";
+      if (reason === "future_process") rows[1]!.lastHeartbeatAt = "2026-10-18T00:01:00Z";
+      if (reason === "stopped_process") rows[1]!.status = "stopped";
+      if (reason === "disabled_provider") rows[0]!.status = "disabled";
+      if (reason === "same_scope") Object.assign(rows[1]!.metaJson, { activeProviderScope: "meta" });
+      if (reason === "missing_provider") rows.shift();
+      if (reason === "admission_refused") Object.assign(rows[1]!.metaJson, { businessAdmitted: false });
+      expect(getProviderSharedProcessObservation({ providerScope: "meta", staleThresholdMs: 180000, nowMs, workers: rows }).waitingForProviderTurn).toBe(false);
+    });
+});
+
+describe("business consume metadata belongs to available workers", () => {
+  it("does not reuse an outgoing worker's stale business stage ahead of a current batch", () => {
+    const old = { workerId: "old:meta", workerFreshnessState: "stale" as const, lastBusinessId: "grandmix", lastConsumedBusinessId: "grandmix" };
+    const current = { workerId: "current:meta", workerFreshnessState: "online" as const, lastBusinessId: "other", metaJson: { batchBusinessIds: ["grandmix"] } };
+    expect(selectProviderWorkerForBusiness({ businessId: "grandmix", workers: [old, current] })?.workerId).toBe("current:meta");
+    expect(selectProviderWorkerForBusiness({ businessId: "grandmix", workers: [old] })).toBeNull();
+    expect(selectProviderWorkerForBusiness({ businessId: "grandmix", activeLeaseOwner: "old", workers: [old, current] })?.workerId).toBe("old:meta");
+  });
+});
+
 describe("getProviderScopeWorkerObservation", () => {
+  it.each(["stopped", "staged"] as const)("does not treat a fresh %s row as available", (workerFreshnessState) => {
+    expect(getProviderScopeWorkerObservation({ providerScope: "meta", staleThresholdMs: 180000,
+      nowMs: Date.parse("2026-10-18T00:00:00Z"), workers: [{ workerId: "worker:meta", providerScope: "meta", workerFreshnessState, lastHeartbeatAt: "2026-10-18T00:00:00Z" }] }).hasFreshHeartbeat).toBe(false);
+  });
   it("returns the freshest worker heartbeat for the provider scope", () => {
     const observation = getProviderScopeWorkerObservation({
       providerScope: "meta",

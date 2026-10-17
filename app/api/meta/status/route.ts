@@ -328,6 +328,7 @@ function buildMetaRetentionTableEvidence(
 }
 
 export async function GET(request: NextRequest) {
+  const requestStartedAt = performance.now();
   const url = new URL(request.url);
   const businessId = url.searchParams.get("businessId");
   const selectedStartDate = url.searchParams.get("startDate");
@@ -1809,7 +1810,7 @@ export async function GET(request: NextRequest) {
   const unifiedTruth = deriveUnifiedSyncTruth({
     activityState: metaActivityState,
     progressState: metaProgressState,
-    workerOnline: workerHealth?.hasFreshHeartbeat ?? null,
+    workerOnline: workerHealth?.workerHealthy ?? null,
     queueDepth: queueHealth?.queueDepth ?? 0,
     leasedPartitions: queueHealth?.leasedPartitions ?? 0,
     releaseGateVerdict: gateRecords.releaseGate?.verdict ?? null,
@@ -2363,6 +2364,8 @@ export async function GET(request: NextRequest) {
       operations: workerHealth
         ? {
             workerHealthy: workerHealth.workerHealthy,
+            providerHeartbeatFresh: workerHealth.hasFreshHeartbeat,
+            sharedProcess: workerHealth.sharedProcess,
             heartbeatAgeMs: workerHealth.heartbeatAgeMs,
             runnerLeaseActive: workerHealth.runnerLeaseActive,
             ownerWorkerId: workerHealth.ownerWorkerId,
@@ -2379,14 +2382,14 @@ export async function GET(request: NextRequest) {
             deadLetterRecovery,
             stallFingerprints: metaStallFingerprints,
             providerWorker: {
-              workerId: workerHealth.ownerWorkerId ?? null,
+              workerId: workerHealth.providerWorkerId ?? null,
               freshnessState: workerHealth.workerFreshnessState ?? null,
               lastHeartbeatAt: workerHealth.lastHeartbeatAt ?? null,
             },
             businessWorker: {
               workerId: workerHealth.matchedWorkerId ?? null,
-              freshnessState: workerHealth.workerFreshnessState ?? null,
-              lastHeartbeatAt: workerHealth.lastHeartbeatAt ?? null,
+              freshnessState: workerHealth.businessWorkerFreshnessState ?? null,
+              lastHeartbeatAt: workerHealth.businessLastHeartbeatAt ?? null,
               currentBusinessId: workerHealth.currentBusinessId ?? null,
             },
             lagMetrics,
@@ -2623,5 +2626,8 @@ export async function GET(request: NextRequest) {
         loader: buildResponse,
       });
 
-  return NextResponse.json(payload, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json(payload, { headers: {
+    "Cache-Control": "no-store",
+    "Server-Timing": `total;dur=${(performance.now() - requestStartedAt).toFixed(1)}`,
+  } });
 }

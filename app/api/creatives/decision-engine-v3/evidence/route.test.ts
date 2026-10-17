@@ -368,6 +368,8 @@ describe("GET /api/creatives/decision-engine-v3/evidence", () => {
       businessId: BUSINESS_ID,
       providerAccountId: "act_1",
       asOfDate: "2026-07-16",
+      adIds: ["ad-1"],
+      allowMissingProjectedAdIds: true,
     });
     expect(query).toHaveBeenCalledWith(
       expect.stringContaining("engine_v3_ad_decision_evaluation_contexts"),

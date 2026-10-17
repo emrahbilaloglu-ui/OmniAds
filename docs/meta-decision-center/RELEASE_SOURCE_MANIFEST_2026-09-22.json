@@ -1,5 +1,5 @@
 {
-  "manifestHash": "7a5b5150d0f982eade2697d40921f56d779d2498ba36a99a7653cd3c69dfe6c4",
+  "manifestHash": "cd3807d1f9d4e88f3237fcb768d75bc90842dc94cb3fb37705d1a023bcadaac3",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -2807,6 +2807,10 @@
       "sha256": "21aaad9b20dcbde6df6a5f4af4195b884f237ad951d9afef60b1f05bc73a8772"
     },
     {
+      "path": "lib/sync/legacy-cleanup-planner.ts",
+      "sha256": "b4d91a062e00df52d8ab14374c4187708afd16b4be4dde61c3b8652e72c45664"
+    },
+    {
       "path": "lib/sync/meta-error-classification.test.ts",
       "sha256": "9998007bfe724cfd35fc6f89108c2af44ceece14c85706722a3992c8511ebbb8"
     },
@@ -2868,7 +2872,7 @@
     },
     {
       "path": "lib/sync/retention.ts",
-      "sha256": "f05854f0b236181b2d2fe673780163a1c630e86b98d40b335a8783f5def9c8de"
+      "sha256": "d83ad856855ef0671d379ac8f3bf8d8926673d695696bd2604dd439ccf3d9ed2"
     },
     {
       "path": "lib/sync/runtime-contract.ts",

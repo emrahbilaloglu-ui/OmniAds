@@ -92,7 +92,7 @@ export const SHOPIFY_RAW_SNAPSHOT_INBOUND_REFERENCE_TABLES = [
   "shopify_sales_events",
 ] as const;
 
-function inboundReferenceGuard(tables: readonly string[], alias: string) {
+export function rawSnapshotInboundReferenceGuard(tables: readonly string[], alias: string) {
   // Rendered from a closed literal list, never from input.
   return tables
     .map(
@@ -141,7 +141,7 @@ export const META_RAW_SNAPSHOT_RETENTION_CANDIDATE_SQL = `
                   )
                 )
               )
-              AND ${inboundReferenceGuard(META_RAW_SNAPSHOT_INBOUND_REFERENCE_TABLES, "snapshot")}
+              AND ${rawSnapshotInboundReferenceGuard(META_RAW_SNAPSHOT_INBOUND_REFERENCE_TABLES, "snapshot")}
             ORDER BY snapshot.fetched_at ASC, snapshot.id ASC
             LIMIT $3
             FOR UPDATE OF snapshot SKIP LOCKED`;
@@ -155,7 +155,7 @@ export const SHOPIFY_RAW_SNAPSHOT_RETENTION_CANDIDATE_SQL = `
                 FROM shopify_raw_snapshot_observations receipt
                 WHERE receipt.snapshot_id = snapshot.id
               )
-              AND ${inboundReferenceGuard(SHOPIFY_RAW_SNAPSHOT_INBOUND_REFERENCE_TABLES, "snapshot")}
+              AND ${rawSnapshotInboundReferenceGuard(SHOPIFY_RAW_SNAPSHOT_INBOUND_REFERENCE_TABLES, "snapshot")}
             ORDER BY snapshot.fetched_at ASC, snapshot.id ASC
             LIMIT $2
             FOR UPDATE OF snapshot SKIP LOCKED`;

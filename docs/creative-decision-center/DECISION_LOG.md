@@ -14208,3 +14208,40 @@ Production READ ONLY EXPLAIN confirms both providers; real owned PG regression
 adds a competing retention index and skewed checked fixtures, then runs the
 actual caller, empty-queue, byte parity and erasure checks. No raw alias was
 committed by the refused first rollout.
+
+## D179 — Bound raw map work without extrapolating free space (2026-10-17)
+
+Six hours of the D178 caller produced real reusable Shopify TOAST pages:
+the app-role read-only map proof measured3,947,435,136 bytes in visible,
+half-empty pages. The same TOAST heap stayed16,264,044,544 bytes across normal
+syncs. This is reuse inside existing files, not returned OS space or unlimited
+unique-history capacity. The initial0.43GiB raw margin is not the resulting
+effective margin. A natural post-D178 native generation also completed2517
+rows; current API readback must bind that actual generation rather than repeat
+the earlier pre-deployment generation claim.
+
+The remaining measurement defect is work proportional to the full legacy
+relation: enumerating about two million Shopify map entries sometimes exhausts
+the unchanged5s query bound and drops valid free-space credit. Bound each MAIN
+and TOAST measurement to its first524288 pages (at most4GiB of the existing
+8KiB-page heap) using the scalar FSM function over an explicit finite series.
+Never extrapolate this prefix. Ignore every later page, retain all-visible and
+half-empty conditions, subtract1MiB perheap, keep indexes fully charged and
+reject a proof claiming more free bytes than the measured prefix can contain.
+No persisted summary, cached stale credit, new service or larger timeout exists.
+The actual production read-only prototype measured both owners in544/773ms,
+with less credit than the full map, including3,477,375,968 Shopify bytes.
+
+Budgets, physical reservation of all effective headroom,512MiB reserve,
+fallback, raw readers, interning eligibility, source/decision clocks, producer
+code and historical authority stay unchanged. Existing resources remain finite.
+Owned PostgreSQL verifies empty heaps, zero credit before vacuum, visible free
+space after ordinary fixture-only vacuum and full index costs through the actual
+SQL. Canonical CI, immutable runtime installation and bounded live readback are
+still required. Rollback retains D178 reference-aware readers/root rows; reverting
+this measurement alone restores slower full-map accounting, never inline-only
+payload readers or native archive retirement.
+
+The retained-reader source ledger is repinned only after reviewing this diff:
+the native relation name remains an aggregate-accounting component label;
+no native source read/selection, pin, retention or historical authority changed.

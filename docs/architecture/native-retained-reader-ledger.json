@@ -251,8 +251,8 @@
     {
       "path": "lib/sync/raw-payload-reusable-space.ts",
       "role": "storage-and-pin-reader",
-      "sha256": "5037cbb7cbc5a26db5f9a93353e1d3b8d237cee50399a374d998c6131b89e36b",
-      "retention": "D178 sums fresh proven free pages in two raw owners with the existing native MAIN credit only once. The native table name is an accounting component label; no native payload read, delete, retention or authority change. Indexes and unknown/unvacuumed space receive no credit; physical reserve remains independent."
+      "sha256": "badf84aa829031eb7373d3209efde186a0d377e99c752c3d0a0d7d8c838ce50d",
+      "retention": "D179 bounds only raw MAIN/TOAST FSM/VM measurement to an exact prefix, never extrapolates and keeps all-visible/half-empty/margin/fallback/index/physical guards. D178 combines the unchanged native MAIN accounting component once; its table name is only a label. Reviewed diff changes no native selection, payload read, delete, retention, pin, clocks or authority."
     },
     {
       "path": "scripts/audits/d077-production-recovery-readonly-preflight.ts",
@@ -501,5 +501,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "35d1d9b847ac3d36113a0a782ef9c367aba85e7956e1e5a85866b20660acaa66"
+  "sourceInventorySha256": "a681694e8bf90a0d5ae95def3f88a48b5f31045cf36dac7de9b61275db7db9c5"
 }

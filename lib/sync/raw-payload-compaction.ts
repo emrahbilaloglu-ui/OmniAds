@@ -58,13 +58,15 @@ export async function internRawPayloadPage(db: Pick<PoolClient, "query">, table:
       await markInline();
       continue;
     }
+    // Scalar cutoffs stay executor parameters so oldest-tail statistics cannot
+    // choose an unrelated retention index without the required scope bounds.
     // Exact JSONB equality, not SHA1/payload_hash alone. A strictly decreasing (fetched_at,id)
     // and an inline target forbid a reference chain or cycle. The global
     // erasure lock serializes this caller; key-share also protects the target
     // against ordinary retention while the deferred self FK is being inserted.
     const ownerSql=`SELECT r.id::text
       FROM public.${table} r WHERE r.business_id=$1 AND r.provider_account_id=$2
-        AND r.payload_hash=$3 AND (r.fetched_at,r.id)<($5::timestamptz,$4::uuid) AND r.payload_ref_id IS NULL
+        AND r.payload_hash=$3 AND (r.fetched_at,r.id)<((SELECT $5::timestamptz),$4::uuid) AND r.payload_ref_id IS NULL
         ${table === "meta_raw_snapshots" ? "AND r.partition_id IS NULL" : ""}
         AND r.payload_json=(SELECT s.payload_json FROM public.${table} s WHERE s.id=$4::uuid)
         AND r.payload_json::text=(SELECT s.payload_json::text FROM public.${table} s WHERE s.id=$4::uuid)

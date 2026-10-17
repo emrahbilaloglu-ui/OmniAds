@@ -14198,3 +14198,13 @@ all owner rows. An old image reading payload_json directly is not a valid rollba
 after the first reference. Previously retired native history/copies remain readable;
 its writer's net value and stopped owner-attention state are evaluated separately.
 Code and owned QA do not establish a completed production rollout.
+
+D178 production plan correction: the oldest production observations caused the
+custom planner to prefer the general retention index, applying business/account/hash
+only as filters. The strict owner guard correctly refused without committing a
+reference. Keep the guard: evaluate the exact cutoff through a scalar InitPlan
+so the composite owner index retains scope AND decreasing-time Index Cond.
+Production READ ONLY EXPLAIN confirms both providers; real owned PG regression
+adds a competing retention index and skewed checked fixtures, then runs the
+actual caller, empty-queue, byte parity and erasure checks. No raw alias was
+committed by the refused first rollout.

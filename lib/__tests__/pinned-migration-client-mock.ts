@@ -50,6 +50,8 @@ const CAPACITY_SIZE_QUERY = `SELECT COALESCE(pg_total_relation_size(to_regclass(
 // Explicit pre-existing FK access fixture for SQL-capture suites. Actual
 // missing-index creation/refusal and plans are tested against real PostgreSQL.
 const ERASURE_REFERENCE_FIXTURE = new Set([
+  "meta_raw_snapshots.payload_ref_id:idx_meta_raw_snapshots_payload_ref",
+  "shopify_raw_snapshots.payload_ref_id:idx_shopify_raw_snapshots_payload_ref",
   "engine_v3_ad_account_calibration_daily.business_ref_id:idx_biz_erase_root_ad_calibration_business",
   "meta_creative_lineage_edges.business_ref_id:idx_biz_erase_root_lineage_business",
   "engine_v3_ad_operator_action_receipts.provider_account_ref_id:idx_biz_erase_binding_action_account",

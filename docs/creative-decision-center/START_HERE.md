@@ -2,6 +2,10 @@
 
 This is the first file future GPT/Codex/Claude chats should read before working on the Adsecute / OmniAds Creative page migration.
 
+For history-preserving raw payload interning and its reference-reader/rollback
+boundary, read [D178](DECISION_LOG.md#d178--preserve-raw-observations-while-interning-identical-payloads-2026-10-17).
+Implementation, real PG proof and live acceptance remain distinct.
+
 For the real deployed-image versus frozen-host-checkout installation boundary,
 read [D176](DECISION_LOG.md#d176--host-archive-installation-verifies-immutable-runtime-source-2026-10-16)
 and [the separately reviewed host operator](../architecture/native-cold-runtime-host-operator.md).

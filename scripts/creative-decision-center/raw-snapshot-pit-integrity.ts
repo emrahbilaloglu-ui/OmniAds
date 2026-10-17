@@ -1148,7 +1148,7 @@ async function readPitSnapshotRows(args: ParsedPitIntegrityArgs) {
                 end_date::text AS end_date,
                 account_timezone,
                 account_currency,
-                payload_json,
+                public.adsecute_meta_raw_payload(meta_raw_snapshots) AS payload_json,
                 payload_hash,
                 provider_http_status,
                 status,

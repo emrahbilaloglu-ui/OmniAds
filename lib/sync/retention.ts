@@ -70,6 +70,7 @@ export const SYNC_RETENTION_DELETE_TARGET_TABLES = [
  * quietly losing provenance in production.
  */
 export const META_RAW_SNAPSHOT_INBOUND_REFERENCE_TABLES = [
+  "meta_raw_snapshots",
   "meta_account_daily",
   "meta_campaign_daily",
   "meta_adset_daily",
@@ -81,6 +82,7 @@ export const META_RAW_SNAPSHOT_INBOUND_REFERENCE_TABLES = [
 ] as const;
 
 export const SHOPIFY_RAW_SNAPSHOT_INBOUND_REFERENCE_TABLES = [
+  "shopify_raw_snapshots",
   "shopify_entity_payload_archives",
   "shopify_orders",
   "shopify_order_lines",
@@ -95,7 +97,7 @@ function inboundReferenceGuard(tables: readonly string[], alias: string) {
   return tables
     .map(
       (table) =>
-        `NOT EXISTS (SELECT 1 FROM ${table} referrer WHERE referrer.source_snapshot_id = ${alias}.id)`,
+        `NOT EXISTS (SELECT 1 FROM ${table} referrer WHERE referrer.${["meta_raw_snapshots", "shopify_raw_snapshots"].includes(table) ? "payload_ref_id" : "source_snapshot_id"} = ${alias}.id)`,
     )
     .join("\n              AND ");
 }

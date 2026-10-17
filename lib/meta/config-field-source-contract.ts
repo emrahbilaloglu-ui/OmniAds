@@ -1418,8 +1418,8 @@ ${accountNarrowing('snap')}
      AND snap.endpoint_name = 'campaign_configs'
      AND snap.entity_scope = 'campaign'
     CROSS JOIN LATERAL jsonb_array_elements(
-      CASE WHEN jsonb_typeof(snap.payload_json) = 'array'
-        THEN snap.payload_json ELSE '[]'::jsonb END
+      CASE WHEN jsonb_typeof(public.adsecute_meta_raw_payload(snap)) = 'array'
+        THEN public.adsecute_meta_raw_payload(snap) ELSE '[]'::jsonb END
     ) AS entity(payload)
     /* Expand only the campaigns the caller needs; see campaignScopeSql. */
     JOIN (${input.campaignScopeSql}) wanted(campaign_id)
@@ -2301,8 +2301,8 @@ ${fieldColumns}
        AND snap.endpoint_name = 'adset_configs'
        AND snap.entity_scope = 'adset'
       CROSS JOIN LATERAL jsonb_array_elements(
-        CASE WHEN jsonb_typeof(snap.payload_json) = 'array'
-          THEN snap.payload_json ELSE '[]'::jsonb END
+        CASE WHEN jsonb_typeof(public.adsecute_meta_raw_payload(snap)) = 'array'
+          THEN public.adsecute_meta_raw_payload(snap) ELSE '[]'::jsonb END
       ) AS entity(payload)
       JOIN (${input.adsetScopeSql}) wanted(adset_id)
         ON wanted.adset_id = entity.payload->>'id'

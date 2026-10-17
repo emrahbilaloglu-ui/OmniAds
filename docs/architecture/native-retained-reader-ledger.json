@@ -41,8 +41,8 @@
     {
       "path": "lib/business-deletion-reference-indexes.ts",
       "role": "schema",
-      "sha256": "5747ba0c08f9a16d0c9dd2255794e51816e791dc93e24426f8242bfba2e460c4",
-      "retention": "D155 additive reviewed FK access: 37 fixed-width FK-column btree keys, including five compound-lineage UUIDs and one fixed four-byte campaign-reference hash with full BYTEA equality/owner recheck, after typed fresh physical admission. Adopt valid default-opclass/collation indexes; refuse unknown/invalid/ambiguous definitions. No DROP, rebuild, FK disabling, retained history removal, provider authority, new writer or storage reclaim permission. D157 adds nine explicit fixed account-UUID leading binding RI lookups (47 total contracts), with full owner/provider/text recheck and no FK weakening. Only these columns use their separate fresh8x UUID-PK physical reserve plus the same40GiB floor. D158 adds five exact full-binding three-key indexes; validated FK/RI metadata, finite small-parent key widths and fresh12x complete UUID-PK reserve plus the same40GiB floor are required. No DROP/rebuild, FK weakening, growth, pruning or reclaimed-space authority. D159 extends the existing full-binding scope by only the two validated Meta lineage/observation-run contracts, preserving the same typed key-width, fresh12x UUID-PK physical reserve and40GiB floor; no timeout, FK or guard relaxation. D166 adds exactly two fixed-width business_ref_id UUID-leading root RESTRICT lookups on native ad calibration daily and Meta creative lineage, 49 total reference contracts. Reuse actual FK/type/default-opclass/collation proof, fresh scalar-heap physical admission with the same3x reserve and40GiB floor, nullable partial equality access, adoption and CONCURRENTLY heap DDL. No rebuild, DROP, FK/ownership relaxation, maintenance or reclaimed-space authority."
+      "sha256": "1b1a97ffc118d9b8a543060aed17c19717d9e0073d0f4ec51a2a2678f0a62fe9",
+      "retention": "D155 additive reviewed FK access: 37 fixed-width FK-column btree keys, including five compound-lineage UUIDs and one fixed four-byte campaign-reference hash with full BYTEA equality/owner recheck, after typed fresh physical admission. Adopt valid default-opclass/collation indexes; refuse unknown/invalid/ambiguous definitions. No DROP, rebuild, FK disabling, retained history removal, provider authority, new writer or storage reclaim permission. D157 adds nine explicit fixed account-UUID leading binding RI lookups (47 total contracts), with full owner/provider/text recheck and no FK weakening. Only these columns use their separate fresh8x UUID-PK physical reserve plus the same40GiB floor. D158 adds five exact full-binding three-key indexes; validated FK/RI metadata, finite small-parent key widths and fresh12x complete UUID-PK reserve plus the same40GiB floor are required. No DROP/rebuild, FK weakening, growth, pruning or reclaimed-space authority. D159 extends the existing full-binding scope by only the two validated Meta lineage/observation-run contracts, preserving the same typed key-width, fresh12x UUID-PK physical reserve and40GiB floor; no timeout, FK or guard relaxation. D166 adds exactly two fixed-width business_ref_id UUID-leading root RESTRICT lookups on native ad calibration daily and Meta creative lineage, 49 total reference contracts. Reuse actual FK/type/default-opclass/collation proof, fresh scalar-heap physical admission with the same3x reserve and40GiB floor, nullable partial equality access, adoption and CONCURRENTLY heap DDL. No rebuild, DROP, FK/ownership relaxation, maintenance or reclaimed-space authority. D178 changes raw-payload projections to the exact same-business/account original decoder and adds deferred raw-owner pins. Native retained lineage, snapshot authority, hashes and clocks are unchanged; new owned PG verifies original bytes and whole-business erasure."
     },
     {
       "path": "lib/business-deletion.ts",
@@ -227,8 +227,8 @@
     {
       "path": "lib/migrations.ts",
       "role": "schema",
-      "sha256": "1c835324802c9c9774721c1fff1a30422c127717e611be13229e6cb896894425",
-      "retention": "Preserve original schema/FK/immutable lineage; DDL metadata is not removal permission. D156 adds only the bounded six-key observation-run index under exact enum/full-FK and UUID-PK capacity proofs; no existing-index rebuild or generic reserve relaxation. D157 limits8x UUID-PK sizing to nine typed account-reference scalar contracts; existing scalar/hash/state-run/ordinary rewrite guards and physical floor are preserved. D158 adds five exact full-binding three-key indexes; validated FK/RI metadata, finite small-parent key widths and fresh12x complete UUID-PK reserve plus the same40GiB floor are required. No DROP/rebuild, FK weakening, growth, pruning or reclaimed-space authority. D159 extends the existing full-binding scope by only the two validated Meta lineage/observation-run contracts, preserving the same typed key-width, fresh12x UUID-PK physical reserve and40GiB floor; no timeout, FK or guard relaxation. D163 adds only a nullable hidden_at marker to existing offboarding jobs. Durable logical removal does not grant physical erasure, pruning or reclaimed-space authority."
+      "sha256": "5257614f2898ef2ee2fc12cb95781150d2863cd4552dfa2a1bedf43cf5f1b94f",
+      "retention": "Preserve original schema/FK/immutable lineage; DDL metadata is not removal permission. D156 adds only the bounded six-key observation-run index under exact enum/full-FK and UUID-PK capacity proofs; no existing-index rebuild or generic reserve relaxation. D157 limits8x UUID-PK sizing to nine typed account-reference scalar contracts; existing scalar/hash/state-run/ordinary rewrite guards and physical floor are preserved. D158 adds five exact full-binding three-key indexes; validated FK/RI metadata, finite small-parent key widths and fresh12x complete UUID-PK reserve plus the same40GiB floor are required. No DROP/rebuild, FK weakening, growth, pruning or reclaimed-space authority. D159 extends the existing full-binding scope by only the two validated Meta lineage/observation-run contracts, preserving the same typed key-width, fresh12x UUID-PK physical reserve and40GiB floor; no timeout, FK or guard relaxation. D163 adds only a nullable hidden_at marker to existing offboarding jobs. Durable logical removal does not grant physical erasure, pruning or reclaimed-space authority. D178 changes raw-payload projections to the exact same-business/account original decoder and adds deferred raw-owner pins. Native retained lineage, snapshot authority, hashes and clocks are unchanged; new owned PG verifies original bytes and whole-business erasure."
     },
     {
       "path": "lib/native-tenant-erasure.ts",
@@ -239,14 +239,20 @@
     {
       "path": "lib/sync/db-growth-fence.ts",
       "role": "storage-and-pin-reader",
-      "sha256": "f1f8d99615ca5de0a24c13cfd30f66c38fa57660e8dbb182e89bc91db3b91bb5",
-      "retention": "D170 reads only native MAIN relation allocation and pgstattuple_approx free-space metadata for aggregate admission; no evaluation rows, generation selection, pins, source removal or provider authority. Preserve all retained history and independent physical/table limits. D174 caps only credited proven MAIN-free bytes by actual physical spare minus512MiB while reporting full proven/uncredited amounts; the unchanged raw-first physical floor and full credited headroom projection still apply. No budget increase, dead/TOAST/index credit or history removal."
+      "sha256": "371582601a1c71daa974789cc65249ce8213a0c4a6ddaa8ce888661bc2d0a1b5",
+      "retention": "D170 reads only native MAIN relation allocation and pgstattuple_approx free-space metadata for aggregate admission; no evaluation rows, generation selection, pins, source removal or provider authority. Preserve all retained history and independent physical/table limits. D174 caps only credited proven MAIN-free bytes by actual physical spare minus512MiB while reporting full proven/uncredited amounts; the unchanged raw-first physical floor and full credited headroom projection still apply. No budget increase, dead/TOAST/index credit or history removal. D178 changes raw-payload projections to the exact same-business/account original decoder and adds deferred raw-owner pins. Native retained lineage, snapshot authority, hashes and clocks are unchanged; new owned PG verifies original bytes and whole-business erasure."
     },
     {
       "path": "lib/sync/native-reusable-heap.ts",
       "role": "provenance-only",
-      "sha256": "f4474871395b63cd18d980646ccc64a09cc18e81c0fab3f46ba49b0792cd17cb",
-      "retention": "D170 pure validated byte accounting and exact native relation identity only; no DB query, evaluation selection, pin change, deletion or current decision authority. Preserve every retained snapshot and its complete lineage. D174 caps only credited proven MAIN-free bytes by actual physical spare minus512MiB while reporting full proven/uncredited amounts; the unchanged raw-first physical floor and full credited headroom projection still apply. No budget increase, dead/TOAST/index credit or history removal."
+      "sha256": "32ab1eb6d5e8d20d6663cf99b8e8a4c4542e4771b06e51bc1ae96dc468cf7f7d",
+      "retention": "D170 pure validated byte accounting and exact native relation identity only; no DB query, evaluation selection, pin change, deletion or current decision authority. Preserve every retained snapshot and its complete lineage. D174 caps only credited proven MAIN-free bytes by actual physical spare minus512MiB while reporting full proven/uncredited amounts; the unchanged raw-first physical floor and full credited headroom projection still apply. No budget increase, dead/TOAST/index credit or history removal. D178 changes raw-payload projections to the exact same-business/account original decoder and adds deferred raw-owner pins. Native retained lineage, snapshot authority, hashes and clocks are unchanged; new owned PG verifies original bytes and whole-business erasure."
+    },
+    {
+      "path": "lib/sync/raw-payload-reusable-space.ts",
+      "role": "storage-and-pin-reader",
+      "sha256": "5037cbb7cbc5a26db5f9a93353e1d3b8d237cee50399a374d998c6131b89e36b",
+      "retention": "D178 sums fresh proven free pages in two raw owners with the existing native MAIN credit only once. The native table name is an accounting component label; no native payload read, delete, retention or authority change. Indexes and unknown/unvacuumed space receive no credit; physical reserve remains independent."
     },
     {
       "path": "scripts/audits/d077-production-recovery-readonly-preflight.ts",
@@ -329,8 +335,8 @@
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
       "role": "owned-fixture",
-      "sha256": "09beaea7658a6e742579752be25421577430ec8d83c8fba7cdbaf4f926cb7932",
-      "retention": "Owned public/isolated fixture only; not live consumer completeness."
+      "sha256": "b69c7da547911a013aae80c6141441254a1f67054d3422963d7a2b656a4ed6e1",
+      "retention": "Owned public/isolated fixture only; not live consumer completeness. D178: the owned minimal raw fixture now installs the production additive raw-reader schema before exercising unchanged native metric/config SQL; no production reader or authority change."
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-fact-ownership-seam-child.ts",
@@ -495,5 +501,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "f9a003c7921a3d6b84adbdf790f0bdbf4d7c00aca2bddeccfd1ede2ab793381c"
+  "sourceInventorySha256": "edd71689fcfe1376682a3b4c3712de9924baa716091af72c621c5e447493325e"
 }

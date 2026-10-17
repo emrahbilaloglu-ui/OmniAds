@@ -6478,7 +6478,7 @@ export async function listMetaRawSnapshotsForRun(input: {
     SELECT
       snapshot.id,
       receipt.page_index,
-      snapshot.payload_json,
+      public.adsecute_meta_raw_payload(snapshot) AS payload_json,
       receipt.response_headers,
       receipt.provider_cursor,
       receipt.request_context,
@@ -6491,7 +6491,7 @@ export async function listMetaRawSnapshotsForRun(input: {
     SELECT
       legacy.id,
       legacy.page_index,
-      legacy.payload_json,
+      public.adsecute_meta_raw_payload(legacy) AS payload_json,
       legacy.response_headers,
       legacy.provider_cursor,
       legacy.request_context,
@@ -8549,7 +8549,7 @@ export async function getLatestMetaRawSnapshot(input: {
       status,
       account_timezone,
       account_currency,
-      payload_json
+      public.adsecute_meta_raw_payload(meta_raw_snapshots) AS payload_json
     FROM meta_raw_snapshots
     WHERE business_id = ${input.businessId}
       AND provider_account_id = ${input.providerAccountId}
@@ -9563,7 +9563,7 @@ export async function appendMetaCurrentConfigHistory(input: {
       payload_json: unknown;
       request_context: unknown;
     }>(
-      `SELECT observation.id::text AS id, source.payload_json,
+      `SELECT observation.id::text AS id, public.adsecute_meta_raw_payload(source) AS payload_json,
               observation.request_context
        FROM meta_raw_snapshot_observations observation
        JOIN meta_raw_snapshots source ON source.id = observation.snapshot_id
@@ -9581,7 +9581,7 @@ export async function appendMetaCurrentConfigHistory(input: {
          AND observation.observed_at >= $8::timestamptz
          AND ($9::jsonb IS NULL OR
               observation.request_context->'rowObservedAtByEntityId' = $9::jsonb)
-         AND jsonb_typeof(source.payload_json) = 'array'
+         AND jsonb_typeof(public.adsecute_meta_raw_payload(source)) = 'array'
        -- Bind to the first persisted receipt after this provider response.
        -- A later repeat in the same run can reuse the canonical snapshot ID
        -- with a different effective selector and must not retroactively source
@@ -14341,7 +14341,7 @@ export async function getMetaRawSnapshotsForWindow(input: {
         end_date,
         account_timezone,
         account_currency,
-        payload_json,
+        public.adsecute_meta_raw_payload(meta_raw_snapshots) AS payload_json,
         payload_hash,
         request_context,
         provider_http_status,

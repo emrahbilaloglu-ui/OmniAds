@@ -16,7 +16,8 @@ export async function buildColdSourceInventory(root=ROOT):Promise<Inventory>{
     "lib/native-cold-erasure.ts","lib/native-cold-session.ts","lib/business-deletion-jobs.ts",
     "lib/native-cold-owner-status.ts","lib/admin-system-capacity.ts","app/admin/system-capacity/legacy-page.tsx",
     "lib/creative-decision-engine/native-tenant-catalog.ts","lib/creative-decision-engine/native-tenant-catalog-store.ts",
-    "lib/sync/global-kill-switch.ts"];
+    "lib/sync/global-kill-switch.ts","lib/sync/raw-payload-storage.ts","lib/sync/raw-payload-compaction.ts",
+    "lib/sync/raw-payload-reusable-space.ts","docs/architecture/raw-payload-reader-ledger.json"];
   const files:Entry[]=[];
   for(const path of [...new Set<string>([...BATCH_FILES,...ADMISSION_FILES,...PINNED_LIBRARY_FILES,...own,...extra,
     ...ledger.entries.map((e:{path:string})=>e.path)])].sort()){

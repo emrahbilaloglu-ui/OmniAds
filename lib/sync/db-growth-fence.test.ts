@@ -848,3 +848,43 @@ describe("collateral-only admission: GA4/Search Console/Shopify report-cache wor
     resetDbGrowthFenceCache();
   });
 });
+
+describe("raw table map accounting",()=>{
+  const env={SYNC_GROWTH_FENCE_DATABASE_BYTES:String(163*GiB),SYNC_GROWTH_FENCE_REUSABLE_NATIVE_HEAP_ENABLED:"true",SYNC_GROWTH_FENCE_RAW_REUSE_ENABLED:"true"};
+  function setup(refuseShop=false,available=210*GiB){
+    const raw=164*GiB,meta=22*GiB+100*1024**2,shop=16*GiB+100*1024**2;
+    const query=vi.fn(async(text:string,args?:unknown[])=>{
+      if(text.includes("public.pg_freespace")){
+        if(args?.[0]==="public.shopify_raw_snapshots"&&refuseShop)throw Error("bounded map timeout");
+        const isMeta=args?.[0]==="public.meta_raw_snapshots";
+        return [{raw_bytes:isMeta?meta:shop,database_bytes:raw,heaps:[
+          {kind:"main",oid:isMeta?100:200,heap_bytes:GiB,visible_free_bytes:0},
+          {kind:"toast",oid:isMeta?101:201,heap_bytes:isMeta?20*GiB:14*GiB,visible_free_bytes:isMeta?2*GiB:GiB},
+        ]}];
+      }
+      if(text.includes("approx_free_space")&&text.includes("engine_v3_ad_decision_evaluations"))return [{database_bytes:raw,total_bytes:70*GiB,heap_bytes:20*GiB,table_len:20*GiB,approx_free_space:4*GiB}];
+      return sizes({database_bytes:raw,meta_raw_snapshots:meta,shopify_raw_snapshots:shop},{capacity_payload:capacityPayload({disks:[{path:PHYSICAL_DATA_PATH,totalBytes:400*GiB,usedBytes:400*GiB-available,availableBytes:available}]})});
+    });
+    vi.mocked(db.getDbWithTimeout).mockReturnValue({query} as never);return {raw,meta,shop};
+  }
+  it("keeps163GiB/22GiB/16GiB budgets and admits actual reusable space without an override",async()=>{
+    const {raw,meta,shop}=setup();const d=await evaluateDbGrowthFence({env});
+    expect(d).toMatchObject({allowed:true,reason:"ready",overridden:false,databaseBytes:raw,
+      databaseBudgetBytes:163*GiB,databaseAccounting:{metric:"raw_minus_proven_disjoint_heap_free",accountedDatabaseBytes:157*GiB+2*1024**2},
+      rawPayloadReuse:{meta_raw_snapshots:{rawBytes:meta,metric:"visible_map_free"},shopify_raw_snapshots:{rawBytes:shop,metric:"visible_map_free"}}});
+    expect(d.tableBudgetBytes).toMatchObject({meta_raw_snapshots:22*GiB,shopify_raw_snapshots:16*GiB});
+    expect(d.tableBytes.meta_raw_snapshots).toBe(meta-2*GiB+1024**2);
+    expect(d.tableBytes.shopify_raw_snapshots).toBe(shop-GiB+1024**2);
+  });
+  it("refuses the independent table when its reusable proof is unavailable",async()=>{
+    const {shop}=setup(true);const d=await evaluateDbGrowthFence({env});
+    expect(d).toMatchObject({allowed:false,reason:"table_budget_exceeded",overridden:false,
+      offender:{table:"shopify_raw_snapshots",bytes:shop,budget:16*GiB},
+      rawPayloadReuse:{shopify_raw_snapshots:{metric:"raw_fallback",reusableBytes:0}}});
+  });
+  it("cannot lend proven raw/native headroom beyond actual physical spare",async()=>{
+    setup(false,42*GiB);const d=await evaluateDbGrowthFence({env});
+    expect(d.allowed).toBe(true);expect(d.databaseAccounting?.reusableHeapBytes).toBe(2.5*GiB);
+    expect(d.physical?.projectedFreeBytes).toBe(40.5*GiB);
+  });
+});

@@ -3193,7 +3193,7 @@ async function readIntegrityReports(args: ParsedExactPitArgs) {
                   end_date::text AS end_date,
                   account_timezone,
                   account_currency,
-                  payload_json,
+                  public.adsecute_meta_raw_payload(meta_raw_snapshots) AS payload_json,
                   payload_hash,
                   provider_http_status,
                   status,
@@ -3326,7 +3326,8 @@ async function readCampaignStatusRows(
                   selected.end_date::text AS end_date,
                   selected.account_timezone,
                   selected.account_currency,
-                  selected.payload_json,
+                  (SELECT public.adsecute_meta_raw_payload(original)
+                   FROM meta_raw_snapshots original WHERE original.id=selected.id) AS payload_json,
                   selected.payload_hash,
                   selected.provider_http_status,
                   selected.status,

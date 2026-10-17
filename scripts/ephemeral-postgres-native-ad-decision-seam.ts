@@ -1,3 +1,4 @@
+import {rawPayloadSchemaStatements} from "../lib/sync/raw-payload-storage";
 import { verifyNativeCampaignContextReferenceProducer } from "./native-campaign-context-writer-seam";
 import { verifyNativeReferenceArchiveRoundTrip, verifyNativeSegmentedReferenceArchiveRoundTrip } from "./native-reference-archive-seam";
 import fs from "node:fs";
@@ -1415,6 +1416,7 @@ async function createHydrationSourceSchema(client: Client) {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+    ${rawPayloadSchemaStatements("meta_raw_snapshots").join("; ")};
     CREATE TABLE meta_raw_snapshot_observations (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(), snapshot_id UUID NOT NULL,
       business_id TEXT NOT NULL, provider_account_id TEXT NOT NULL,

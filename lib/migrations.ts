@@ -1,3 +1,4 @@
+import { RAW_PAYLOAD_STORAGE_TABLES, rawPayloadSchemaStatements, rawPayloadIndexStatements } from "@/lib/sync/raw-payload-storage";
 import { ensureBusinessErasureStateRunIndex, readBusinessErasureStateRunContract } from "@/lib/business-deletion-state-run-index";
 import { BUSINESS_ERASURE_REFERENCE_INDEXES, BUSINESS_ERASURE_FULL_BINDING_INDEXES, ensureBusinessErasureReferenceIndexes, ensureBusinessErasureFullBindingIndexes } from "@/lib/business-deletion-reference-indexes";
 import { NATIVE_CAMPAIGN_CONTEXT_REFERENCE_WRITER_SCHEMA_SQL } from "./creative-decision-engine/native-campaign-context-writer";
@@ -17059,6 +17060,20 @@ export async function runMigrations(options?: {
         // exclusivity, the honest `reconcile` state, the one-action-per-entity
         // slot, and the append-only place a lost outcome is recorded. A release
         // that cannot prove them must not be announced as migrated.
+        // D178: additive raw-reader compatibility. Large live indexes are
+        // installed by the separately bounded concurrent owner operation.
+        for (const table of RAW_PAYLOAD_STORAGE_TABLES) {
+          for (const statement of rawPayloadSchemaStatements(table)) await sql.query(statement);
+          // Let ordinary autovacuum recycle released TOAST promptly. No forced
+          // vacuum/rewrite or age-based payload deletion is authorized here.
+          await sql.query(`ALTER TABLE public.${table} SET (toast.autovacuum_vacuum_scale_factor=0.002,toast.autovacuum_vacuum_threshold=1000)`);
+          const [size] = await sql.query<{ bytes: string }>(
+            "SELECT pg_relation_size($1::regclass)::text AS bytes", [`public.${table}`]);
+          if (Number(size?.bytes) <= 16 * 1024 ** 2) {
+            for (const statement of rawPayloadIndexStatements(table)) await sql.query(statement);
+          }
+        }
+
         const erasureIndexes = await ensureBusinessErasureReferenceIndexes(sql, (relation, method, column) =>
           assertBusinessErasureScalarIndexCapacity(sql, relation, method, column));
         logStartupEvent("migrations_business_erasure_reference_indexes_verified", erasureIndexes);

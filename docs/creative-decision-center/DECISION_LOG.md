@@ -14147,3 +14147,54 @@ The held original remains hot and must be counted as such; no archive success or
 space saving is attributed to it. Code rollback retains compatible readers and
 lifetime replica erasure. Full corrected-source CI/images and real later
 original commit/readback/HTTP acceptance remain separate requirements.
+
+## D178 — Preserve raw observations while interning identical payloads (2026-10-17)
+
+The user requested a live, history-preserving fix for the remaining Meta/Shopify
+raw-table margins on existing resources, and explicitly rejected archive layers
+whose net benefit is marginal. A bounded32-row production comparison showed that
+three gzip copies would consume6–57% MORE payload bytes than existing TOAST;
+native LZ4 was5% larger for sampled Meta and only6% smaller for Shopify.
+Those are samples, not a whole-database forecast. Do not expand that file archive
+or switch native compression on this evidence. Repeated legacy observations,
+however, contain byte-identical payloads while their IDs/clocks/provenance differ.
+
+Add a physical raw-payload reference representation within EACH original table.
+Keep every raw ID, content key/hash, provider/business binding, observation,
+status, date, request context and clock. An alias may reference only one INLINE
+original in the SAME business/account with the same payload hash and exact JSONB
+text SHA256. A Meta owner must have NULL partition_id, so a later ordinary
+partition CASCADE cannot remove shared payload ownership. The compatibility SQL reader validates the reference and raises on
+missing/drifted/nested/cross-scope originals; it never substitutes empty evidence.
+Inline0/checked1/reference2 are physical storage states, not lifecycle authority.
+No new decision core, epoch, metric, snapshot rewrite or provider action exists.
+
+References use a deferred NO ACTION self FK and indexed reference probes.
+Retention must preserve referenced owners; whole-business deletion still removes
+all originals AND aliases in its existing transaction. References never cross a
+tenant boundary. Owned PG acceptance must cover A→B→A, distinct clocks/IDs,
+configuration SQL consumers, dangling/hash/scope refusal, concurrency and erasure.
+An explicit reader inventory must cover runtime and operational payload readers.
+
+A default-off, bounded caller under the existing erasure advisory lock may intern
+only observations older than92days (outside the normal90day active window), with equally old provider end dates and no activity in the last2minutes. Owners strictly precede children by(fetched_at,id). Each page is capped at128rows,3seconds per-table processing and256KiB per payload; the actual queue/owner EXPLAIN must use the reviewed partial indexes and contain no sequential scan. It preserves source row metadata, checks exact
+payload equality before update and re-reads through the compatibility reader
+before COMMIT. It does not delete raw rows, receipts, source FKs or backups.
+Unknown schema/index/consumer/physical state refuses. Known inline owners are
+never redirected while referenced. Queue indexes and finite batches avoid a
+repeated broad scan. New and old canonical content IDs retain their meaning.
+
+Physical reusable-space evidence and independent163GiB/table/disk guards remain
+separate from logical saved payload bytes. Fresh read-only VM/FSM proof credits only all-visible pages at least half empty, less1MiB perheap; it never counts indexes or unvacuumed dead tuples. The existing physical512MiB reserve bounds aggregate disjoint credit. Ordinary TOAST autovacuum is tuned to0.2%/1000tuples without forcing maintenance. No success claim follows UPDATE or a
+private compression experiment. A live closure needs actual non-overlapping
+reusable-space proof, retained-byte equality, natural Meta/Shopify sync and current
+native/API readback. Neither arbitrary table-limit increases nor estimates of
+dead tuples/TOAST/index reuse may replace that proof. Existing resources remain
+finite; no unlimited-history guarantee follows this change.
+
+Rollout installs additive reader/schema compatibility before enabling any caller.
+Rollback stops new interning but keeps reference-capable readers/constraints and
+all owner rows. An old image reading payload_json directly is not a valid rollback
+after the first reference. Previously retired native history/copies remain readable;
+its writer's net value and stopped owner-attention state are evaluated separately.
+Code and owned QA do not establish a completed production rollout.

@@ -464,7 +464,7 @@ async function verifyRetentionSweep(client: Client) {
          ON a.attrelid = con.conrelid AND a.attnum = con.conkey[1]
        WHERE con.confrelid = $1::regclass
          AND con.contype = 'f'
-         AND a.attname = 'source_snapshot_id'`,
+         AND a.attname IN ('source_snapshot_id','payload_ref_id')`,
       [table],
     );
     const missing = catalog.rows
@@ -1460,6 +1460,7 @@ async function main() {
     await verifyLegacyRetentionLaneOff(client);
     await verifySelectionQueries(client);
     await verifyRolloutOrchestration(client);
+    await (await import("./raw-payload-storage-pg")).verifyRawPayloadStoragePg(client);
 
     console.log(`${LABEL} PASS`);
   } catch (error) {

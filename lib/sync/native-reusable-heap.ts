@@ -3,11 +3,12 @@ import { toSafeByteCount } from "./state-history-effective-size";
 export const NATIVE_REUSABLE_HEAP_TABLE = "engine_v3_ad_decision_evaluations";
 
 export interface NativeReusableHeapAccounting {
-  metric: "raw" | "raw_minus_proven_native_heap_free";
+  metric: "raw" | "raw_minus_proven_native_heap_free" | "raw_minus_proven_disjoint_heap_free";
   rawDatabaseBytes: number;
   accountedDatabaseBytes: number;
   reusableHeapBytes: number;
-  relation: typeof NATIVE_REUSABLE_HEAP_TABLE;
+  relation: typeof NATIVE_REUSABLE_HEAP_TABLE | "disjoint_native_and_raw_heaps";
+  components?: { relation: string; provenFreeBytes: number }[];
   fallbackReason: string | null;
   provenReusableHeapBytes?: number;
   uncreditedReusableHeapBytes?: number;
@@ -20,7 +21,7 @@ export interface NativeReusableHeapAccounting {
 export function limitNativeReusableHeapCredit(accounting:NativeReusableHeapAccounting,input:{
   availableBytes:number;minimumFreeBytes:number;databaseBudgetBytes:number;
 }):NativeReusableHeapAccounting {
-  if(accounting.metric!=="raw_minus_proven_native_heap_free")return accounting;
+  if(accounting.metric==="raw")return accounting;
   const values=[input.availableBytes,input.minimumFreeBytes,input.databaseBudgetBytes];
   if(!values.every(x=>Number.isSafeInteger(x)&&x>=0))return {
     ...accounting,metric:"raw",accountedDatabaseBytes:accounting.rawDatabaseBytes,reusableHeapBytes:0,

@@ -24,10 +24,12 @@ export function describeDbGrowthFenceCapacity(decision: DbGrowthFenceDecision) {
     ),
     databaseRawBytes: decision.databaseBytes,
     databaseAccounting: decision.databaseAccounting ?? null,
+    rawPayloadReuse: decision.rawPayloadReuse ?? null,
     tables: FENCED_TABLES.map((table) => ({
       table,
       ...capacity(decision.tableBytes[table], decision.tableBudgetBytes?.[table]),
-      measurementBasis: table === "meta_entity_state_history" && decision.stateHistoryEffective
+      measurementBasis: (table === "meta_raw_snapshots" || table === "shopify_raw_snapshots") && decision.rawPayloadReuse?.[table]
+        ? decision.rawPayloadReuse[table].metric : table === "meta_entity_state_history" && decision.stateHistoryEffective
         ? decision.stateHistoryEffective.metric
         : "raw_relation_bytes",
     })),

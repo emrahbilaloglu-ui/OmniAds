@@ -1211,7 +1211,7 @@ async function loadH1CountrySources(
       selectedSnapshotIds.length > 0
         ? await client.query<DbRow>(
             `
-              SELECT id::text, payload_json
+              SELECT id::text, public.adsecute_meta_raw_payload(meta_raw_snapshots) AS payload_json
               FROM meta_raw_snapshots
               WHERE id = ANY($1::uuid[])
               ORDER BY id

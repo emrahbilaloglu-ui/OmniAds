@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import ts from "typescript";
 import type { Client } from "pg";
 import { getDb, runPinnedDbTransaction } from "../lib/db";
-import { getMetaAdSetDailyCoverage } from "../lib/meta/warehouse";
+import { getMetaAdSetDailyCoverage, getMetaBreakdownDailyCoverageByEndpoint } from "../lib/meta/warehouse";
 
 /** Execute the actual route SQL, not a second implementation of its rules. */
 function routeSql(file: string, functionName: string) {
@@ -15,6 +15,10 @@ function routeSql(file: string, functionName: string) {
     if (inside && ts.isTemplateExpression(node) && node.templateSpans.length === 1 &&
         node.templateSpans[0]!.expression.getText(source) === "input.tableName") {
       queries.push(node.head.text + "meta_adset_daily" + node.templateSpans[0]!.literal.text);
+    }
+    if (inside && ts.isTemplateExpression(node) && node.templateSpans.length === 1 &&
+        node.templateSpans[0]!.expression.getText(source) === "truthPredicate") {
+      queries.push(node.head.text + "AND COALESCE(breakdown.truth_state, 'finalized') = 'finalized'" + node.templateSpans[0]!.literal.text);
     }
     if (inside && ts.isTaggedTemplateExpression(node) && ts.isTemplateExpression(node.template)) {
       const template = node.template;
@@ -28,6 +32,22 @@ function routeSql(file: string, functionName: string) {
   return queries;
 }
 
+function actualMetadataIndexSql() {
+  const source = ts.createSourceFile("lib/migrations.ts", readFileSync("lib/migrations.ts", "utf8"), ts.ScriptTarget.Latest, true);
+  const matches: string[] = [];
+  function walk(node: ts.Node) {
+    if (ts.isTaggedTemplateExpression(node) && ts.isNoSubstitutionTemplateLiteral(node.template) &&
+        node.template.text.includes("CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meta_decision_snapshots_daily_business_kind_created")) {
+      matches.push(node.template.text);
+    }
+    ts.forEachChild(node, walk);
+  }
+  walk(source); assert.equal(matches.length, 1);
+  // The real key/order is executed on an owned TEMP table. PostgreSQL cannot
+  // build a TEMP index concurrently or run CONCURRENTLY inside this fixture TX.
+  return matches[0]!.replace(" CONCURRENTLY", "");
+}
+
 export async function verifyMetaStatusApiReadersPg(client: Client) {
   const { rows: [identity] } = await client.query("SELECT current_database() db,host(inet_server_addr()) host,inet_server_port() port");
   assert(["sync_retention_seam", "raw_payload_owned_qa"].includes(identity.db));
@@ -37,7 +57,9 @@ export async function verifyMetaStatusApiReadersPg(client: Client) {
   const dates = routeSql("app/api/meta/decisions-workspace/route.ts", "resolveWorkspaceEndDate");
   const pulse = routeSql("app/api/meta/account-pulse/route.ts", "readEngineMetadata");
   const coverageQueries = routeSql("lib/meta/warehouse.ts", "getMetaCoverageForTable");
+  const breakdownQueries = routeSql("lib/meta/warehouse.ts", "getMetaBreakdownDailyCoverageByEndpoint");
   assert.equal(dates.length, 2); assert.equal(pulse.length, 1); assert.equal(coverageQueries.length, 1);
+  assert.equal(breakdownQueries.length, 1);
   await runPinnedDbTransaction({ client, timeoutMs: 8000, lockTimeoutMs: 1000, fn: async (db) => {
     await db.query("SET LOCAL TIME ZONE 'UTC'");
     await db.query(`CREATE TEMP TABLE engine_v3_decision_snapshots_daily(business_ref_id uuid,business_id text,creative_id text,as_of_date date) ON COMMIT DROP;
@@ -51,6 +73,7 @@ export async function verifyMetaStatusApiReadersPg(client: Client) {
       CREATE TEMP TABLE meta_adset_daily(business_id text,provider_account_id text,date date,updated_at timestamptz) ON COMMIT DROP;
       CREATE INDEX ON meta_adset_daily(business_id,date);
       CREATE TEMP TABLE meta_sync_partitions(business_id text,provider_account_id text,scope text,partition_date date,status text,updated_at timestamptz) ON COMMIT DROP;`);
+    await db.query(actualMetadataIndexSql());
     await db.query(`INSERT INTO engine_v3_decision_snapshots_daily VALUES
       ($1::uuid,$1::text,'owned-a','2026-01-15'),($1::uuid,$1::text,'owned-b','2026-01-17'),
       ($1::uuid,$1::text,'shared','2026-01-25'),($2::uuid,$2::text,'foreign','2026-01-31');
@@ -71,8 +94,22 @@ export async function verifyMetaStatusApiReadersPg(client: Client) {
       ($1,'recommendation','2026-01-10','2026-01-22','later-backfill'),
       ($1,'other','2026-01-30','2026-01-31','wrong-kind'),
       ($2,'recommendation','2026-01-31','2026-02-01','foreign')`, [business, foreign]);
+    await db.query(`INSERT INTO meta_decision_snapshots_daily
+      SELECT $1,'recommendation','2026-01-31','2026-02-01'::timestamptz+g*interval '1 second','foreign-newer'
+      FROM generate_series(1,20000) g`, [foreign]);
+    await db.query("ANALYZE meta_decision_snapshots_daily");
     assert.equal((await db.query(pulse[0]!, [business]))[0]!.engine_version, "later-backfill");
     assert.equal((await db.query(pulse[0]!, ["missing"])).length, 0);
+    const [metadataPlanRow] = await db.query("EXPLAIN (ANALYZE, FORMAT JSON, TIMING OFF) " + pulse[0]!, [business]);
+    const metadataNodes: Record<string, unknown>[] = [];
+    function collect(node: Record<string, unknown>, into: Record<string, unknown>[]) {
+      into.push(node);
+      for (const child of (node.Plans ?? []) as Record<string, unknown>[]) collect(child, into);
+    }
+    collect(metadataPlanRow!["QUERY PLAN"][0].Plan, metadataNodes);
+    assert(metadataNodes.some((node) => node["Index Name"] === "idx_meta_decision_snapshots_daily_business_kind_created" &&
+      /business_id/.test(String(node["Index Cond"])) && /kind/.test(String(node["Index Cond"]))));
+    assert(!metadataNodes.some((node) => ["Sort", "Seq Scan"].includes(String(node["Node Type"]))));
 
     await db.query(`INSERT INTO meta_adset_daily VALUES
       ($1,'act-a','2026-01-01','2026-01-10'),($1,'act-a','2026-01-01','2026-01-11'),
@@ -107,8 +144,71 @@ export async function verifyMetaStatusApiReadersPg(client: Client) {
     assert.equal(withPartition.ready_through_date, "2026-01-02");
     assert.equal(withPartition.latest_updated_at, "2026-01-09T00:00:00.000Z");
     assert.equal(withPartition.total_rows, 3);
+
+    await db.query(`ALTER TABLE meta_sync_partitions ADD COLUMN id uuid DEFAULT gen_random_uuid();
+      CREATE UNIQUE INDEX ON meta_sync_partitions(id);
+      CREATE TEMP TABLE meta_sync_checkpoints(partition_id uuid,phase text,status text,checkpoint_scope text) ON COMMIT DROP;
+      CREATE INDEX ON meta_sync_checkpoints(partition_id,checkpoint_scope);
+      CREATE TEMP TABLE meta_breakdown_daily(business_id text,provider_account_id text,date date,breakdown_type text,truth_state text) ON COMMIT DROP;
+      CREATE INDEX ON meta_breakdown_daily(business_id,date,breakdown_type);
+      CREATE TEMP TABLE meta_raw_snapshots(business_id text,provider_account_id text,endpoint_name text,start_date date,end_date date,status text,partition_id uuid,checkpoint_id uuid,run_id uuid) ON COMMIT DROP;
+      CREATE INDEX ON meta_raw_snapshots(business_id,provider_account_id,start_date,end_date);`);
+    const partition = "d1810000-0000-4000-8000-000000000001";
+    await db.query(`INSERT INTO meta_sync_partitions VALUES
+      ($1,'act-a','breakdown_age','2026-01-02','failed','2026-01-10',$2::uuid)`, [business, partition]);
+    await db.query(`INSERT INTO meta_sync_checkpoints VALUES
+      ($1::uuid,'finalize','succeeded','breakdown:age,gender'),
+      ($1::uuid,'finalize','failed','breakdown:country'),
+      ($1::uuid,'fetch','succeeded','breakdown:publisher_platform,platform_position,impression_device')`, [partition]);
+    await db.query(`INSERT INTO meta_breakdown_daily VALUES
+      ($1,'act-a','2026-01-01','age','finalized'),
+      ($1,'act-a','2026-01-01','country','provisional'),
+      ($2,'act-a','2026-01-05','age','finalized');
+      `, [business, foreign]);
+    await db.query(`INSERT INTO meta_raw_snapshots VALUES
+      ($1,'act-a','breakdown_age','2026-01-01','2026-01-01','fetched',NULL,NULL,NULL),
+      ($1,'act-a','breakdown_country','2026-01-01','2026-01-01','fetched',NULL,NULL,NULL),
+      ($1,'act-a','breakdown_country','2026-01-03','2026-01-03','fetched',NULL,NULL,NULL),
+      ($1,'act-a','breakdown_publisher_platform,platform_position,impression_device','2026-01-02','2026-01-03','fetched',NULL,NULL,NULL),
+      ($1,'act-b','breakdown_age','2026-01-05','2026-01-05','fetched',NULL,NULL,NULL),
+      ($1,'act-a','breakdown_country','2026-01-04','2026-01-04','fetched',$3::uuid,NULL,NULL),
+      ($1,'act-a','breakdown_country','2026-01-04','2026-01-04','partial',NULL,NULL,NULL),
+      ($1,'act-a','breakdown_country','2026-01-04','2026-01-10','fetched',NULL,NULL,NULL),
+      ($2,'act-a','breakdown_country','2026-01-05','2026-01-05','fetched',NULL,NULL,NULL)`, [business, foreign, partition]);
+    await db.query(`INSERT INTO meta_breakdown_daily
+      SELECT $1,'decoy','2026-01-01'::date+(g%30),'age','finalized' FROM generate_series(1,20000) g`, [foreign]);
+    await db.query("ANALYZE meta_breakdown_daily");
+    const endpoints = ["breakdown_age", "breakdown_country", "breakdown_publisher_platform,platform_position,impression_device", "unmapped"];
+    const readBreakdown = (account: string | null, from = "2026-01-01", through = "2026-01-05") =>
+      getMetaBreakdownDailyCoverageByEndpoint({ businessId: business, providerAccountId: account, endpointNames: [...endpoints, endpoints[0]!], startDate: from, endDate: through });
+    const aggregate = (count: number, first: string | null, last: string | null) =>
+      ({ completed_days: count, first_completed_date: first, ready_through_date: last });
+    const none = aggregate(0, null, null);
+    const allBreakdowns = await readBreakdown(null);
+    assert.deepEqual(allBreakdowns.get(endpoints[0]!), aggregate(3, "2026-01-01", "2026-01-05"));
+    assert.deepEqual(allBreakdowns.get(endpoints[1]!), aggregate(2, "2026-01-01", "2026-01-03"));
+    assert.deepEqual(allBreakdowns.get(endpoints[2]!), aggregate(1, "2026-01-02", "2026-01-02"));
+    assert.deepEqual(allBreakdowns.get("unmapped"), none);
+    assert.deepEqual((await readBreakdown("act-a")).get(endpoints[0]!), aggregate(2, "2026-01-01", "2026-01-02"));
+    const accountB = await readBreakdown("act-b");
+    assert.deepEqual(accountB.get(endpoints[0]!), aggregate(1, "2026-01-05", "2026-01-05"));
+    assert.deepEqual(accountB.get(endpoints[1]!), none);
+    assert.deepEqual([...(await readBreakdown("missing")).values()], endpoints.map(() => none));
+    const singleDay = await readBreakdown(null, "2026-01-03", "2026-01-03");
+    assert.deepEqual(singleDay.get(endpoints[1]!), aggregate(1, "2026-01-03", "2026-01-03"));
+    assert.deepEqual(singleDay.get(endpoints[2]!), none); // Raw windows witness their start day only.
+    for (const [from, through] of [["2026-01-20", "2026-01-20"], ["2026-01-05", "2026-01-01"]]) {
+      assert.deepEqual([...(await readBreakdown(null, from, through)).values()], endpoints.map(() => none));
+    }
+    const [breakdownPlanRow] = await db.query("EXPLAIN (ANALYZE, FORMAT JSON, TIMING OFF) " + breakdownQueries[0]!,
+      [endpoints.slice(0, 3), ["age", "country", "placement"], ["breakdown:age,gender", "breakdown:country", "breakdown:publisher_platform,platform_position,impression_device"], business, null, start.toISOString().slice(0, 10), end.toISOString().slice(0, 10)]);
+    const breakdownNodes: Record<string, unknown>[] = [];
+    collect(breakdownPlanRow!["QUERY PLAN"][0].Plan, breakdownNodes);
+    assert(breakdownNodes.some((node) => /Index/.test(String(node["Node Type"])) &&
+      /business_id/.test(String(node["Index Cond"])) && /date.*day_offset/.test(String(node["Index Cond"]))));
+    assert(!breakdownNodes.some((node) => node["Node Type"] === "Seq Scan" && node["Relation Name"] === "meta_breakdown_daily"));
     // Pinned calls above really used the same temporary fixture connection.
     assert.equal((await getDb().query("SELECT COUNT(*)::int n FROM meta_adset_daily WHERE business_id=$1", [business]))[0]!.n, 3);
   } });
-  console.log("[meta-status-api-readers] PASS actual SQL: native/legacy dates, account ambiguity, original backfill ordering, exact daily coverage, 761-day indexed bounds and partition semantics");
+  console.log("[meta-status-api-readers] PASS actual SQL: native/legacy dates, account ambiguity, ordered metadata index/backfills, exact daily coverage, point breakdown witnesses/checkpoints/legacy raw, 761-day bounds and partition semantics");
 }

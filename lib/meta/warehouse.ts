@@ -7919,46 +7919,52 @@ export async function getMetaBreakdownDailyCoverageByEndpoint(input: {
         FROM unnest($1::text[], $2::text[], $3::text[])
           AS requested(endpoint_name, breakdown_type, checkpoint_scope)
       ),
+      days AS (
+        SELECT $6::date + day_offset AS day
+        FROM generate_series(0, $7::date - $6::date) AS day_offset
+      ),
       coverage AS (
         SELECT
           requested.endpoint_name,
-          breakdown.date::date AS day
+          days.day
         FROM requested
-        JOIN meta_breakdown_daily breakdown
-          ON breakdown.breakdown_type = requested.breakdown_type
-        WHERE breakdown.business_id = $4
-          AND ($5::text IS NULL OR breakdown.provider_account_id = $5)
-          AND breakdown.date::date BETWEEN $6::date AND $7::date
-          ${truthPredicate}
-        UNION
-        SELECT
-          requested.endpoint_name,
-          partition.partition_date::date AS day
-        FROM requested
-        JOIN meta_sync_partitions partition
-          ON partition.business_id = $4
-          AND ($5::text IS NULL OR partition.provider_account_id = $5)
-          AND partition.partition_date::date BETWEEN $6::date AND $7::date
-        JOIN meta_sync_checkpoints checkpoint
-          ON checkpoint.partition_id = partition.id
-          AND checkpoint.phase = 'finalize'
-          AND checkpoint.status = 'succeeded'
-          AND checkpoint.checkpoint_scope = requested.checkpoint_scope
-        UNION
-        SELECT
-          requested.endpoint_name,
-          snapshot.start_date::date AS day
-        FROM requested
-        JOIN meta_raw_snapshots snapshot
-          ON snapshot.endpoint_name = requested.endpoint_name
-        WHERE snapshot.business_id = $4
-          AND ($5::text IS NULL OR snapshot.provider_account_id = $5)
-          AND snapshot.status = 'fetched'
-          AND snapshot.partition_id IS NULL
-          AND snapshot.checkpoint_id IS NULL
-          AND snapshot.run_id IS NULL
-          AND snapshot.start_date::date BETWEEN $6::date AND $7::date
-          AND snapshot.end_date::date BETWEEN $6::date AND $7::date
+        CROSS JOIN days
+        -- One witness is enough for a day. OFFSET 0 keeps each EXISTS a
+        -- point lookup instead of hashing an entire historical source.
+        WHERE CASE WHEN EXISTS (
+          SELECT 1
+          FROM meta_breakdown_daily breakdown
+          WHERE breakdown.business_id = $4
+            AND ($5::text IS NULL OR breakdown.provider_account_id = $5)
+            AND breakdown.date = days.day
+            AND breakdown.breakdown_type = requested.breakdown_type
+            ${truthPredicate}
+          LIMIT 1 OFFSET 0
+        ) THEN true WHEN EXISTS (
+          SELECT 1
+          FROM meta_sync_partitions partition
+          JOIN meta_sync_checkpoints checkpoint ON checkpoint.partition_id = partition.id
+          WHERE partition.business_id = $4
+            AND ($5::text IS NULL OR partition.provider_account_id = $5)
+            AND partition.partition_date = days.day
+            AND checkpoint.phase = 'finalize'
+            AND checkpoint.status = 'succeeded'
+            AND checkpoint.checkpoint_scope = requested.checkpoint_scope
+          LIMIT 1 OFFSET 0
+        ) THEN true ELSE EXISTS (
+          SELECT 1
+          FROM meta_raw_snapshots snapshot
+          WHERE snapshot.business_id = $4
+            AND ($5::text IS NULL OR snapshot.provider_account_id = $5)
+            AND snapshot.endpoint_name = requested.endpoint_name
+            AND snapshot.status = 'fetched'
+            AND snapshot.partition_id IS NULL
+            AND snapshot.checkpoint_id IS NULL
+            AND snapshot.run_id IS NULL
+            AND snapshot.start_date = days.day
+            AND snapshot.end_date BETWEEN $6::date AND $7::date
+          LIMIT 1 OFFSET 0
+        ) END
       )
       SELECT
         endpoint_name,

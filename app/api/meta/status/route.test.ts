@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { evaluateDbGrowthFence } from "@/lib/sync/db-growth-fence";
+import { readDbGrowthFenceObservation } from "@/lib/sync/db-growth-fence";
 
 vi.mock("@/lib/sync/db-growth-fence", () => ({
-  evaluateDbGrowthFence: vi.fn(async () => ({ allowed: true, reason: "ready", evaluatedAt: new Date().toISOString() })),
+  readDbGrowthFenceObservation: vi.fn(async () => ({ allowed: true, reason: "ready", evaluatedAt: new Date().toISOString() })),
 }));
 import { NextRequest } from "next/server";
 import { GET } from "@/app/api/meta/status/route";
@@ -274,7 +274,7 @@ describe("GET /api/meta/status", () => {
   });
   it("exposes refused admission and disables work repair without hiding healthy worker evidence", async () => {
     vi.mocked(workerHealth.getProviderWorkerHealthState).mockResolvedValueOnce({ workerHealthy: true, heartbeatAgeMs: 1_000, consumeStage: "capacity_refused" } as never);
-    vi.mocked(evaluateDbGrowthFence).mockResolvedValueOnce({ allowed: false, reason: "database_budget_exceeded", evaluatedAt: new Date().toISOString() } as never);
+    vi.mocked(readDbGrowthFenceObservation).mockResolvedValueOnce({ allowed: false, reason: "database_budget_exceeded", evaluatedAt: new Date().toISOString() } as never);
     const response = await GET(new NextRequest("http://localhost/api/meta/status?businessId=biz_1"));
     const body = await response.json();
     expect(body.syncCapability).toMatchObject({ state: "capacity_refused", canStartSync: false, reason: "database_budget_exceeded" });

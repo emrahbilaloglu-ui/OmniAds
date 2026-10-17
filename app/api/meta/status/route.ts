@@ -69,7 +69,7 @@ import {
   upsertRuntimeContractInstance,
 } from "@/lib/sync/runtime-contract";
 import { buildMetaSyncCapability, deriveMetaOperationsBlockReason } from "@/lib/meta/status-operations";
-import { evaluateDbGrowthFence } from "@/lib/sync/db-growth-fence";
+import { readDbGrowthFenceObservation } from "@/lib/sync/db-growth-fence";
 import { GLOBAL_OPERATOR_REVIEW_WORKFLOW } from "@/lib/global-operator-review";
 import {
   deriveOperationalSyncState,
@@ -352,7 +352,7 @@ export async function GET(request: NextRequest) {
   }
   if (posture !== "live") return metaPostureUnavailable("meta_status");
   const buildResponse = async () => {
-  const admissionRead = evaluateDbGrowthFence({ queryTimeoutMs: 5_000 }).catch(() => null);
+  const admissionRead = readDbGrowthFenceObservation({ queryTimeoutMs: 5_000 }).catch(() => null);
   const [
     integration,
     assignments,

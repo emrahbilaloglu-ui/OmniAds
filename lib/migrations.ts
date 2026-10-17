@@ -8203,6 +8203,14 @@ export async function runMigrations(options?: {
           sql`ALTER TABLE meta_decision_snapshots_daily
           ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'recommendation'
           CHECK (kind IN ('recommendation', 'anomaly'))`.catch(() => {}),
+          // Preserve created_at ordering, including later backfills of older
+          // snapshot days. Build without blocking ordinary reads or writes.
+          sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meta_decision_snapshots_daily_business_kind_created
+          ON meta_decision_snapshots_daily (business_id, kind, created_at DESC)`,
+          sql.query(buildIndexContractQuery({
+            indexName: "idx_meta_decision_snapshots_daily_business_kind_created",
+            definitionMustContain: [" ON public.meta_decision_snapshots_daily USING btree (business_id, kind, created_at DESC)"],
+          })),
           sql`ALTER TABLE meta_decision_snapshots_daily
           ADD COLUMN IF NOT EXISTS severity TEXT
           CHECK (severity IS NULL OR severity IN ('high', 'medium', 'low'))`.catch(

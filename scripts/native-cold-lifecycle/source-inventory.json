@@ -28,8 +28,8 @@
     },
     {
       "path": "app/api/meta/account-pulse/route.ts",
-      "sha256": "968f0d8dc97ae45447f392b11640fb33363c854fe11ce5a18928356bac5388ed",
-      "bytes": 33581
+      "sha256": "7c132f0e94a544a50f122e4c849ee3d8aa6fe9e1b8c7dc10495e35a931b3cf9f",
+      "bytes": 33444
     },
     {
       "path": "app/api/meta/creative-thumbnail/route.ts",
@@ -43,8 +43,8 @@
     },
     {
       "path": "app/api/meta/status/route.ts",
-      "sha256": "a2907c7f45258538add850180f06de268c258da18264d0ccc53723a02039a8eb",
-      "bytes": 110282
+      "sha256": "3f2e1a9f3c1b3fae2e7cea987ffb9a52797d4d4b4d1d20c585a4a0c90c83cf1c",
+      "bytes": 110296
     },
     {
       "path": "docker-compose.yml",
@@ -302,6 +302,11 @@
       "bytes": 266542
     },
     {
+      "path": "lib/meta/decision-pipeline-health.ts",
+      "sha256": "d3408b3f598a3045b95a9b166af9b9fd82227997755809b60416a0e60fb6e224",
+      "bytes": 20519
+    },
+    {
       "path": "lib/meta/decisions-workspace-contract.ts",
       "sha256": "e326ca1e9d9639cbc1ed26a0d9a83e4e656128b98243f0b3c255e29789339e5b",
       "bytes": 26050
@@ -333,8 +338,8 @@
     },
     {
       "path": "lib/meta/warehouse.ts",
-      "sha256": "0e32f2d87be2748a1c8a91e5669c4ed43c742399e66b0fa8d36778f7b561dbe8",
-      "bytes": 542050
+      "sha256": "f8f50f514c0d6ea3a2a3fc4b680ff6038f3a934e701e8f8cfd9d4a0b0f14124f",
+      "bytes": 542284
     },
     {
       "path": "lib/migration-verification.ts",
@@ -343,8 +348,8 @@
     },
     {
       "path": "lib/migrations.ts",
-      "sha256": "5257614f2898ef2ee2fc12cb95781150d2863cd4552dfa2a1bedf43cf5f1b94f",
-      "bytes": 851684
+      "sha256": "2699ede83955d3a82250056ad5781824fcfdabeb9e6933f22a65bb260560b5df",
+      "bytes": 852304
     },
     {
       "path": "lib/native-cold-erasure.ts",
@@ -373,8 +378,8 @@
     },
     {
       "path": "lib/sync/db-growth-fence.ts",
-      "sha256": "371582601a1c71daa974789cc65249ce8213a0c4a6ddaa8ce888661bc2d0a1b5",
-      "bytes": 55217
+      "sha256": "1bdb5ed561bde12e4282bba76c2a1f8018fd6a8c9af47bf38e9614240b29bbcb",
+      "bytes": 58105
     },
     {
       "path": "lib/sync/global-kill-switch.ts",
@@ -543,8 +548,8 @@
     },
     {
       "path": "scripts/meta-status-api-readers-pg.ts",
-      "sha256": "382cf8c4d029544e5adc2270cbf3c6323a50ef81f23520a3f7e1b4d9706165cc",
-      "bytes": 9141
+      "sha256": "cd9f79508407d1ac47a498bc2b628946e221bccc59f19e5c6fa4d3bd79d6e855",
+      "bytes": 17245
     },
     {
       "path": "scripts/meta/creative-day-source-evidence-repair.ts",
@@ -628,8 +633,8 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/inventory.ts",
-      "sha256": "741835b728d802579c178ce1e01848c036ce3792bba664344403909ad1fa0679",
-      "bytes": 3991
+      "sha256": "eea1546be2b67ea2f44bd677bb56699b8d6b2a2e5c00febad2dd34593c6c301a",
+      "bytes": 4035
     },
     {
       "path": "scripts/native-cold-lifecycle/mirror-endpoint.py",
@@ -827,5 +832,5 @@
       "bytes": 4644
     }
   ],
-  "sourceInventorySha256": "42b7b65c3531dd295b7017ceb4d034f250868deee80f14a66f5da58045b3bc01"
+  "sourceInventorySha256": "39159d0e253f7c27bb12dc2238dad4235b6c987dd2e4a6dbdde0d7703cd85a3e"
 }

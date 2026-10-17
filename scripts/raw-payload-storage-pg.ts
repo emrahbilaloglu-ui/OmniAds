@@ -15,6 +15,15 @@ export async function verifyRawPayloadStoragePg(db: Client) {
     const fn = table === "meta_raw_snapshots" ? "adsecute_meta_raw_payload" : "adsecute_shopify_raw_payload";
     const business = "8ab00000-0000-4000-8000-000000000001", foreign = "8ab00000-0000-4000-8000-000000000002";
     const ids = [1,2,3,4,5,6,7,8].map(n => `8ac00000-0000-4000-8000-${String(n).padStart(12,"0")}`);
+    // Real oldest-tail skew plus the competing production retention index:
+    // a literal cutoff can prefer a tiny date range without scope bounds.
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_${table}_retention ON public.${table}(fetched_at,id${table==="meta_raw_snapshots"?",partition_id":""})`);
+    await db.query(`INSERT INTO public.${table}(id,business_id,provider_account_id,endpoint_name,entity_scope,start_date,end_date,
+      payload_json,payload_hash,fetched_at,created_at,updated_at,payload_storage_state)
+      SELECT gen_random_uuid(),'raw-owner-plan-future-fixture','future-account','orders','fixture','2099-01-01','2099-01-01',
+        'null'::jsonb,md5(g::text),'2099-01-01'::timestamptz+g*interval '1 second',
+        '2099-01-01'::timestamptz,'2099-01-01'::timestamptz,1 FROM generate_series(1,3000)g`);
+    await db.query(`ANALYZE public.${table}`);
     await db.query("BEGIN;SET LOCAL enable_seqscan=off");
     try {
       for (let i = 0; i < ids.length; i++) await db.query(`INSERT INTO public.${table}
@@ -93,6 +102,7 @@ export async function verifyRawPayloadStoragePg(db: Client) {
       assert.equal((await db.query(`SELECT 1 FROM public.${table} WHERE business_id=$1`, [business])).rowCount, 0);
       assert.equal((await db.query(`SELECT public.${fn}(s) FROM public.${table} s WHERE id=$1::uuid`, [ids[3]])).rowCount, 1);
       await db.query(`DELETE FROM public.${table} WHERE id=$1::uuid`, [ids[3]]);
+      await db.query(`DELETE FROM public.${table} WHERE business_id='raw-owner-plan-future-fixture'`);
     } catch (e) { await db.query("ROLLBACK"); throw e; }
   }
   console.log("[raw-payload-storage] PASS real caller: A-B-A original bytes/IDs/clocks, scope/hash/nesting refusal, pinned owner and deferred whole-business erasure");

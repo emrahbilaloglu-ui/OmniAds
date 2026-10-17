@@ -1,5 +1,5 @@
 {
-  "manifestHash": "919f3481a42b1940a28c02a2a69f15e16ef595760aedf96103e296c2b3843c2a",
+  "manifestHash": "ca56363f05d824e30e389257d804e4f9005996a15e90f1d477ce6d40a4d6fc40",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -928,7 +928,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "ce039a6a62bed54c4358ed23e9dde805cce7b8b0be5bd610197d4aa8ccf069da"
+      "sha256": "b037408f3fa81dde3423a9d6204553975af4d524d61627aa86d20d07d3a6dc51"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -2848,7 +2848,7 @@
     },
     {
       "path": "lib/sync/raw-payload-compaction.ts",
-      "sha256": "a217b51faafba4d5c8e80e921ce4b80dddd6fb7d51003a7381a8c8197f5db83e"
+      "sha256": "7746909922aae30d35f5db2f65b4d965501ef12058cd2d633b14b32deff25ef7"
     },
     {
       "path": "lib/sync/raw-payload-reusable-space.test.ts",
@@ -3424,7 +3424,7 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/source-inventory.json",
-      "sha256": "a0fa65e89864a3e31cc873ef9dd079e48ab6c6f3d1fe9097575342c6430d4a87"
+      "sha256": "a4b3b8bd4cf16319393250d61321b1051347d02468a119509740e832802f6dd5"
     },
     {
       "path": "scripts/native-cold-lifecycle/types.ts",
@@ -3620,7 +3620,7 @@
     },
     {
       "path": "scripts/ops/install-native-cold-runtime.py",
-      "sha256": "aef07ca77713c50d79b489e56cfe997c0d26ee6ead9b62d2ad53e38ab9258f67"
+      "sha256": "faee0d46be404e5d990d94bad76160b7574b0d022b181d42874b83050807b15f"
     },
     {
       "path": "scripts/ops/install-native-cold-runtime.test.ts",
@@ -3636,7 +3636,7 @@
     },
     {
       "path": "scripts/raw-payload-storage-pg.ts",
-      "sha256": "54ac6faa2457dc5348ce1d659aeb25263b5878e1a68b3499ed3db42145ac8896"
+      "sha256": "3bf159c63f0c258e78d49a91c40297bbf91b2724701954cf12c6f4fed478aba5"
     },
     {
       "path": "scripts/read-path-write-reachability.ts",

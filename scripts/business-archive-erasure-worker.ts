@@ -31,7 +31,8 @@ while (!stopping) {
     console.error("[business archive erasure] admission unavailable",{reason}); }
   finally{clearInterval(pulse);await heartbeat;}
   const pending = join(control, "health.pending"), health = { contract: "business-archive-erasure-health.v1",
-    buildId: process.env.APP_BUILD_ID, observedAt: new Date().toISOString(), outcome, reason, rawPayload };
+    buildId: process.env.APP_BUILD_ID, observedAt: new Date().toISOString(), outcome, reason,
+    ...(rawPayload ? { rawPayload } : {}) };
   await writeFile(pending, JSON.stringify(health), { mode: 0o600 }); await rename(pending, join(control, "health.json"));
   if (!stopping) await new Promise<void>(resolve => {
     const done = () => { clearTimeout(timer); process.removeListener("SIGTERM", done); process.removeListener("SIGINT", done); resolve(); };

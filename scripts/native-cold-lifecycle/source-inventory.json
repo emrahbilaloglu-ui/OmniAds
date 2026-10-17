@@ -418,8 +418,8 @@
     },
     {
       "path": "scripts/business-archive-erasure-worker.ts",
-      "sha256": "0cdc43a92b322a0712a4678f79ee830f57cdffe6f5803e19c0603d24a0acaed3",
-      "bytes": 2898
+      "sha256": "09721b59c9991fe25dba54271a3992840c51700e1faaca6832c565139286837b",
+      "bytes": 2929
     },
     {
       "path": "scripts/creative-decision-center/meta-decisions-creatives-acceptance.ts",
@@ -757,5 +757,5 @@
       "bytes": 4644
     }
   ],
-  "sourceInventorySha256": "30c5e80367a9a3e91ba40a7c0c9e9e67eb312a7414d59ee0d70ef35b5f1621f4"
+  "sourceInventorySha256": "8a3e4ee29cf45ef907d33bbeb840c5777c10ad25d2a54682a8ba4e6a2204d932"
 }

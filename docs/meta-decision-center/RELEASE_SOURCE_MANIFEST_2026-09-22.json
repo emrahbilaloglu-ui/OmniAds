@@ -1,5 +1,5 @@
 {
-  "manifestHash": "e104a20df549546e5e50eea859857471c9473dbc4b7d5a4ff68c42f75bf4d65c",
+  "manifestHash": "3e123d1dceff66edd612675f1ad424abb572bc22e21c7495807bcdfa941e88ea",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -2996,7 +2996,7 @@
     },
     {
       "path": "scripts/business-archive-erasure-worker.ts",
-      "sha256": "0cdc43a92b322a0712a4678f79ee830f57cdffe6f5803e19c0603d24a0acaed3"
+      "sha256": "09721b59c9991fe25dba54271a3992840c51700e1faaca6832c565139286837b"
     },
     {
       "path": "scripts/creative-decision-center/exact-pit-confirmatory-replay.ts",
@@ -3420,7 +3420,7 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/source-inventory.json",
-      "sha256": "567875f1898347f81f7b2c54e4cc4fb65aff502c17f376ea7ee74265fa172001"
+      "sha256": "7b4c7f97e61f300f7ae487ec093cd9f0aa155c02c18cb7b205b7275e2d64c990"
     },
     {
       "path": "scripts/native-cold-lifecycle/types.ts",
@@ -3616,7 +3616,7 @@
     },
     {
       "path": "scripts/ops/install-native-cold-runtime.py",
-      "sha256": "49eb5a37464ea83063e43dadd3a08a25a92b1291aa816e6e970b86d5a1b4fcbb"
+      "sha256": "d997a9b771df1ecb6cecbbe9b6a5d526cb751c558ace4138f8bfacccf091b692"
     },
     {
       "path": "scripts/ops/install-native-cold-runtime.test.ts",

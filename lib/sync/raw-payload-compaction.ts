@@ -12,13 +12,17 @@ function need(value: unknown, code: string): asserts value { if (!value) throw n
 async function requireIndexedPlan(db: Pick<PoolClient,"query">, sql:string, args:unknown[], required:string) {
   const {rows}=await db.query("EXPLAIN(FORMAT JSON) "+sql,args);
   const indexes=new Set<string>();
+  const conditions=new Map<string,string>();
   const visit=(node:Record<string,unknown>)=>{
     need(!["Seq Scan","Parallel Seq Scan"].includes(String(node["Node Type"])),"raw_payload_unbounded_plan");
-    if(node["Index Name"])indexes.add(String(node["Index Name"]));
+    if(node["Index Name"]){const name=String(node["Index Name"]);indexes.add(name);conditions.set(name,String(node["Index Cond"]??""));}
     for(const child of (node.Plans??[]) as Record<string,unknown>[])visit(child);
   };
   visit(rows[0]["QUERY PLAN"][0].Plan);
   need(indexes.has(required),"raw_payload_required_index_absent");
+  const condition=conditions.get(required)??"";
+  need(condition.includes("fetched_at")&&condition.includes("<"),"raw_payload_index_time_bound_absent");
+  if(required.endsWith("_owner"))need(["business_id","provider_account_id","payload_hash"].every(key=>condition.includes(key)),"raw_payload_index_scope_bound_absent");
 }
 
 /** Closed source SQL. Used by the actual caller and by owned PostgreSQL QA. */
@@ -26,10 +30,10 @@ export async function internRawPayloadPage(db: Pick<PoolClient, "query">, table:
   need(RAW_PAYLOAD_STORAGE_TABLES.includes(table), "raw_payload_table_invalid");
   const pageSql = `SELECT s.id::text,s.fetched_at::text,business_id,provider_account_id,payload_hash,pg_column_size(payload_json)::int AS stored_bytes
     FROM public.${table} s WHERE payload_storage_state=0
-      AND s.fetched_at<clock_timestamp()-interval '92 days'
+      AND s.fetched_at<transaction_timestamp()-interval '92 days'
       AND (end_date IS NULL OR end_date<current_date-92)
-      AND updated_at<clock_timestamp()-interval '2 minutes'
-      AND COALESCE(last_observed_at,fetched_at)<clock_timestamp()-interval '2 minutes'
+      AND updated_at<transaction_timestamp()-interval '2 minutes'
+      AND COALESCE(last_observed_at,fetched_at)<transaction_timestamp()-interval '2 minutes'
     ORDER BY s.fetched_at,s.id LIMIT ${RAW_PAYLOAD_PAGE_ROWS} FOR UPDATE SKIP LOCKED`;
   await requireIndexedPlan(db,pageSql,[],`idx_${table}_payload_queue`);
   const { rows: page } = await db.query<{ id: string; stored_bytes: number; fetched_at:string; business_id: string; provider_account_id: string; payload_hash: string }>(pageSql);

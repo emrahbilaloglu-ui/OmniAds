@@ -41,6 +41,9 @@ export async function verifyRawPayloadStoragePg(db: Client) {
       const physical = (await db.query(`SELECT id::text,payload_ref_id::text,payload_storage_state FROM public.${table} WHERE id=ANY($1::uuid[]) ORDER BY id`, [ids])).rows;
       assert.equal(physical.find(r => r.id === ids[2]).payload_ref_id, ids[0]);
       for (const i of [0,1,3,4,5,6,7]) assert.equal(physical.find(r => r.id === ids[i]).payload_ref_id, null);
+      // Even an exhausted queue keeps a real date Index Cond. A volatile
+      // clock_timestamp() would leave only a Filter and scan future rows.
+      if(identity.db==="raw_payload_owned_qa")assert.equal((await internRawPayloadPage(db,table)).selected,0);
       // All three A→B→A clocks/IDs remain distinct. Equal hashes across scope or
       // unequal payloads never cause sharing; the actual JSONB equality rules.
       for (const [label, sql, args] of [

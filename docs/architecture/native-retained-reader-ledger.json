@@ -329,8 +329,8 @@
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
       "role": "owned-fixture",
-      "sha256": "ed5be14144328a83c5837db5bf0779ad30dc6c1b3e92b6cd64752ff5b83f66d6",
-      "retention": "D174 registers all nine actual migrated archive-erasure cases, including durable multi-page tenant cleanup and exact orphan/shared/foreign-byte preservation. Other suites, physical gates, expected counts and rollback proofs remain unchanged. D175 marker regression sets and clears COMMENT only on the owned ephemeral database and calls the shipped shared-object marker reader. No retained-table selection, row mutations, pins, expected test counts or retention policy changed."
+      "sha256": "33f6fb81035abde13279196d0bd724d1497099260679d300d622bd9f62e2f8ae",
+      "retention": "D174 registers all nine actual migrated archive-erasure cases, including durable multi-page tenant cleanup and exact orphan/shared/foreign-byte preservation. Other suites, physical gates, expected counts and rollback proofs remain unchanged. D175 marker regression sets and clears COMMENT only on the owned ephemeral database and calls the shipped shared-object marker reader. No retained-table selection, row mutations, pins, expected test counts or retention policy changed. D178: exact erasure-suite count is68 including the new application-level raw owner/alias erasure test; every prior negative and historical test remains required."
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
@@ -501,5 +501,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "edd71689fcfe1376682a3b4c3712de9924baa716091af72c621c5e447493325e"
+  "sourceInventorySha256": "35d1d9b847ac3d36113a0a782ef9c367aba85e7956e1e5a85866b20660acaa66"
 }

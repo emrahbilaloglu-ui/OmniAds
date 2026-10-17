@@ -488,7 +488,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
-      "sha256": "ed5be14144328a83c5837db5bf0779ad30dc6c1b3e92b6cd64752ff5b83f66d6",
+      "sha256": "33f6fb81035abde13279196d0bd724d1497099260679d300d622bd9f62e2f8ae",
       "bytes": 171064
     },
     {
@@ -802,5 +802,5 @@
       "bytes": 4644
     }
   ],
-  "sourceInventorySha256": "27e606298be94c4026d01ec4f6781dc97db88179328bee0083b2c584bce8def6"
+  "sourceInventorySha256": "222e1e2858fa8fa279fbbb5699c9f4b8e4b48a4744932c17cadaef3ec67007b5"
 }

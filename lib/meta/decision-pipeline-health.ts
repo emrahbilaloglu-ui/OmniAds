@@ -7,7 +7,7 @@ import {
   getTodayIsoForTimeZoneServer,
 } from "@/lib/provider-platform-date";
 import {
-  evaluateDbGrowthFence,
+  readDbGrowthFenceObservation,
   type DbGrowthFenceDecision,
 } from "@/lib/sync/db-growth-fence";
 
@@ -312,7 +312,7 @@ export async function readMetaDecisionPipelineOperationalHealth(input: {
         `,
         [businessId, providerAccountId],
       ),
-      evaluateDbGrowthFence({
+      readDbGrowthFenceObservation({
         nowMs: now.getTime(),
         queryTimeoutMs: input.queryTimeoutMs ?? 5_000,
       }),

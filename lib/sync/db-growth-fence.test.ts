@@ -5,6 +5,8 @@ vi.mock("@/lib/db", () => ({ getDbWithTimeout: vi.fn() }));
 const db = await import("@/lib/db");
 const {
   evaluateDbGrowthFence,
+  readDbGrowthFenceObservation,
+  resetDbGrowthFenceReadObservationCache,
   fencedTableProviderFamily,
   operationProviderFamily,
   assertDbGrowthFenceAdmits,
@@ -886,5 +888,110 @@ describe("raw table map accounting",()=>{
     setup(false,42*GiB);const d=await evaluateDbGrowthFence({env});
     expect(d.allowed).toBe(true);expect(d.databaseAccounting?.reusableHeapBytes).toBe(2.5*GiB);
     expect(d.physical?.projectedFreeBytes).toBe(40.5*GiB);
+  });
+});
+
+describe("read-only capacity observation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetDbGrowthFenceReadObservationCache();
+    resetDbGrowthFenceCache();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  it("coalesces concurrent readers and preserves the real measurement clock", async () => {
+    const query = installDb(sizes());
+    const nowMs = Date.now();
+    const results = await Promise.all(Array.from({ length: 3 }, () =>
+      readDbGrowthFenceObservation({ env: {}, nowMs })));
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(results.every((result) => result === results[0])).toBe(true);
+    const later = await readDbGrowthFenceObservation({ env: {}, nowMs: nowMs + 1000 });
+    expect(later.allowed).toBe(true);
+    expect(later.evaluatedAt).toBe(new Date(nowMs).toISOString());
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-measures after 15 seconds instead of refreshing a cached timestamp", async () => {
+    const query = installDb(sizes());
+    const nowMs = Date.now();
+    await readDbGrowthFenceObservation({ env: {}, nowMs });
+    const later = await readDbGrowthFenceObservation({ env: {}, nowMs: nowMs + 15001 });
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(later.evaluatedAt).toBe(new Date(nowMs + 15001).toISOString());
+  });
+
+  it.each(["refused", "failed proof"])("does not retain a %s observation", async (kind) => {
+    const query = installDb(kind === "refused" ? sizes({ database_bytes: 500 * GiB }) : () => { throw Error("read failed"); });
+    expect((await readDbGrowthFenceObservation({ env: {} })).allowed).toBe(false);
+    const recovered = installDb(sizes());
+    expect((await readDbGrowthFenceObservation({ env: {} })).allowed).toBe(true);
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(recovered).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { DATABASE_URL: "postgres://other/db" },
+    { SYNC_GROWTH_FENCE_DATABASE_BYTES: String(170 * GiB) },
+    { SYNC_GROWTH_FENCE_META_RAW_SNAPSHOTS_BYTES: String(3 * GiB) },
+  ])("isolates different database or budget inputs: %j", async (changed) => {
+    const query = installDb(sizes());
+    const nowMs = Date.now();
+    await readDbGrowthFenceObservation({ env: {}, nowMs });
+    await readDbGrowthFenceObservation({ env: changed, nowMs });
+    expect(query).toHaveBeenCalledTimes(2);
+  });
+
+  it("isolates a different statement deadline", async () => {
+    const query = installDb(sizes());
+    await readDbGrowthFenceObservation({ env: {}, queryTimeoutMs: 5000 });
+    await readDbGrowthFenceObservation({ env: {}, queryTimeoutMs: 3000 });
+    expect(query).toHaveBeenCalledTimes(2);
+  });
+
+  it("cannot seed the independent write admission cache", async () => {
+    const read = installDb(sizes());
+    await readDbGrowthFenceObservation({ env: {} });
+    const write = installDb(sizes({ database_bytes: 500 * GiB }));
+    await expect(assertSyncGrowthBoundary("meta_sync_recent", { env: {} }))
+      .rejects.toBeInstanceOf(DbGrowthFenceRefusal);
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(write).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not reuse a future observation after the clock moves backwards", async () => {
+    const query = installDb(sizes());
+    const nowMs = Date.now();
+    await readDbGrowthFenceObservation({ env: {}, nowMs });
+    const earlier = await readDbGrowthFenceObservation({ env: {}, nowMs: nowMs - 1 });
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(earlier.evaluatedAt).toBe(new Date(nowMs - 1).toISOString());
+  });
+
+  it("expires before the underlying physical receipt becomes stale", async () => {
+    const nowMs = Date.now();
+    const sampledAt = new Date(nowMs - (PHYSICAL_SNAPSHOT_MAX_AGE_MS - 1000)).toISOString();
+    const query = installDb(sizes({}, {
+      capacity_sampled_at: sampledAt,
+      capacity_age_seconds: (PHYSICAL_SNAPSHOT_MAX_AGE_MS - 1000) / 1000,
+      capacity_payload: capacityPayload({ sampledAt }),
+    }));
+    expect((await readDbGrowthFenceObservation({ env: {}, nowMs })).allowed).toBe(true);
+    await readDbGrowthFenceObservation({ env: {}, nowMs: nowMs + 1001 });
+    expect(query).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retain an emergency override as a normal admitted observation", async () => {
+    const query = installDb(sizes({ database_bytes: 500 * GiB }));
+    const env = {
+      [OVERRIDE_ENV_FLAG]: OVERRIDE_ENV_VALUE,
+      [OVERRIDE_REASON_ENV]: "owned unit test only",
+      [OVERRIDE_EXPIRES_ENV]: new Date(Date.now() + 60000).toISOString(),
+    };
+    const first = await readDbGrowthFenceObservation({ env });
+    expect(first.overridden).toBe(true);
+    await readDbGrowthFenceObservation({ env });
+    expect(query).toHaveBeenCalledTimes(2);
   });
 });

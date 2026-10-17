@@ -6,7 +6,7 @@ const dbMock = vi.hoisted(() => ({
   getDbWithTimeout: vi.fn(),
 }));
 const fenceMock = vi.hoisted(() => ({
-  evaluateDbGrowthFence: vi.fn(),
+  readDbGrowthFenceObservation: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -14,7 +14,7 @@ vi.mock("@/lib/db", () => ({
 }));
 
 vi.mock("@/lib/sync/db-growth-fence", () => ({
-  evaluateDbGrowthFence: fenceMock.evaluateDbGrowthFence,
+  readDbGrowthFenceObservation: fenceMock.readDbGrowthFenceObservation,
 }));
 
 import {
@@ -110,7 +110,7 @@ describe("Meta decision pipeline health", () => {
         account_timezone: "Europe/Istanbul",
       },
     ]);
-    fenceMock.evaluateDbGrowthFence.mockResolvedValue(admittedFence());
+    fenceMock.readDbGrowthFenceObservation.mockResolvedValue(admittedFence());
   });
 
   it("reports a healthy operational path only when durable activity, finalized truth and admission are current", async () => {
@@ -136,7 +136,7 @@ describe("Meta decision pipeline health", () => {
   });
 
   it("calls a live growth-fence refusal blocked instead of inferring that cron stopped", async () => {
-    fenceMock.evaluateDbGrowthFence.mockResolvedValue(
+    fenceMock.readDbGrowthFenceObservation.mockResolvedValue(
       admittedFence({
         allowed: false,
         reason: "table_budget_exceeded",
@@ -169,7 +169,7 @@ describe("Meta decision pipeline health", () => {
   it.each([
     "fence_read_failed",
   ])("keeps successful sync visible while %s withholds admission verification", async (reason) => {
-    fenceMock.evaluateDbGrowthFence.mockResolvedValue(admittedFence({
+    fenceMock.readDbGrowthFenceObservation.mockResolvedValue(admittedFence({
       allowed: false, reason,
     }));
     const operational = await readMetaDecisionPipelineOperationalHealth({
@@ -195,7 +195,7 @@ describe("Meta decision pipeline health", () => {
     "physical_snapshot_missing", "physical_snapshot_malformed", "physical_snapshot_future_dated",
     "physical_snapshot_stale", "physical_data_path_missing", "physical_database_identity_mismatch",
   ])("reports evaluated %s as a closed safety gate, not measured full storage", async (reason) => {
-    fenceMock.evaluateDbGrowthFence.mockResolvedValue(admittedFence({ allowed: false, reason }));
+    fenceMock.readDbGrowthFenceObservation.mockResolvedValue(admittedFence({ allowed: false, reason }));
     const result = await readMetaDecisionPipelineOperationalHealth({
       businessId: "biz_1", providerAccountId: "act_1", now: NOW,
     });

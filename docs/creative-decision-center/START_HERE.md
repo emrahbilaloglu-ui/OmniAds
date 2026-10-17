@@ -2,6 +2,10 @@
 
 This is the first file future GPT/Codex/Claude chats should read before working on the Adsecute / OmniAds Creative page migration.
 
+For the follow-up status/workspace read costs, ordered legacy metadata index,
+and read-only capacity observations, read
+[D181](DECISION_LOG.md#d181--finish-status-and-workspace-read-costs-with-original-evidence-semantics-2026-10-18).
+
 For truthful shared-worker availability and bounded status/detail readers, read
 [D180](DECISION_LOG.md#d180--separate-shared-worker-availability-and-bound-status-api-read-work-2026-10-18).
 Provider progress clocks, complete generation integrity and historical authority

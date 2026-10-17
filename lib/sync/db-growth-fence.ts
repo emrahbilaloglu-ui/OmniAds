@@ -1181,6 +1181,75 @@ export async function assertDbGrowthFenceAdmits(
  * immediate once the operator reclaims space.
  */
 const ADMITTED_TTL_MS = 15_000;
+const READ_OBSERVATION_TTL_MS = 15_000;
+
+type FenceReadObservation = {
+  key: string;
+  expiresAt: number;
+  decision: DbGrowthFenceDecision;
+};
+
+function fenceReadObservationStore() {
+  return globalThis as typeof globalThis & {
+    __omniadsGrowthFenceReadObservation?: FenceReadObservation;
+    __omniadsGrowthFenceReadPending?: {
+      key: string;
+      startedAt: number;
+      promise: Promise<DbGrowthFenceDecision>;
+    };
+  };
+}
+
+export function resetDbGrowthFenceReadObservationCache() {
+  const store = fenceReadObservationStore();
+  store.__omniadsGrowthFenceReadObservation = undefined;
+  store.__omniadsGrowthFenceReadPending = undefined;
+}
+
+/** Status projection only. Coalesce the expensive map proof across concurrent
+ * read surfaces, retaining its original clock. This cache is separate from
+ * every write/admission boundary. Refusals, failed proofs and overrides are
+ * never retained, and the physical receipt's own expiry also bounds reuse. */
+export async function readDbGrowthFenceObservation(input?: {
+  env?: Readonly<Record<string, string | undefined>>;
+  nowMs?: number;
+  queryTimeoutMs?: number;
+}): Promise<DbGrowthFenceDecision> {
+  const nowMs = input?.nowMs ?? Date.now();
+  const env = { ...(input?.env ?? process.env) };
+  const key = `${buildFenceCacheKey(env)}\u001f${input?.queryTimeoutMs ?? DEFAULT_QUERY_TIMEOUT_MS}`;
+  const store = fenceReadObservationStore();
+  const cached = store.__omniadsGrowthFenceReadObservation;
+  if (cached?.key === key && cached.expiresAt > nowMs &&
+      Date.parse(cached.decision.evaluatedAt) <= nowMs) return cached.decision;
+  const pending = store.__omniadsGrowthFenceReadPending;
+  if (pending?.key === key && pending.startedAt <= nowMs &&
+      nowMs - pending.startedAt < READ_OBSERVATION_TTL_MS) return pending.promise;
+
+  const promise = evaluateDbGrowthFence({ ...input, env, nowMs }).then((decision) => {
+    const measuredAt = Date.parse(decision.evaluatedAt);
+    const physical = decision.physical;
+    const physicalExpiry = physical?.sampledAt
+      ? Date.parse(physical.sampledAt) + physical.maxAgeSeconds * 1000
+      : Infinity;
+    const expiresAt = Math.min(measuredAt + READ_OBSERVATION_TTL_MS, physicalExpiry);
+    if (decision.allowed && decision.reason === "ready" && !decision.overridden &&
+        Number.isFinite(measuredAt) && measuredAt <= nowMs && expiresAt > nowMs) {
+      store.__omniadsGrowthFenceReadObservation = { key, expiresAt, decision };
+    } else if (store.__omniadsGrowthFenceReadObservation?.key === key) {
+      store.__omniadsGrowthFenceReadObservation = undefined;
+    }
+    return decision;
+  });
+  store.__omniadsGrowthFenceReadPending = { key, startedAt: nowMs, promise };
+  try {
+    return await promise;
+  } finally {
+    if (store.__omniadsGrowthFenceReadPending?.promise === promise) {
+      store.__omniadsGrowthFenceReadPending = undefined;
+    }
+  }
+}
 
 function fenceCache() {
   const store = globalThis as typeof globalThis & {

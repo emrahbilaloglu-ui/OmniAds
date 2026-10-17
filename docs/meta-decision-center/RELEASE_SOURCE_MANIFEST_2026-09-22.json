@@ -1,5 +1,5 @@
 {
-  "manifestHash": "3e123d1dceff66edd612675f1ad424abb572bc22e21c7495807bcdfa941e88ea",
+  "manifestHash": "7a5b5150d0f982eade2697d40921f56d779d2498ba36a99a7653cd3c69dfe6c4",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -1120,7 +1120,7 @@
     },
     {
       "path": "lib/business-deletion.db.test.ts",
-      "sha256": "4e933d813761b187705247f88adbd9afd160651d19ce36c9371feef41ddeab3f"
+      "sha256": "6fcf56d7e47469546e064447ac50ef49397554ce6f6c1fe8ccde3b1379026d5c"
     },
     {
       "path": "lib/business-deletion.ts",

@@ -237,7 +237,9 @@ export function getProviderSharedProcessObservation(input: {
     Number.isFinite(ageMs) && ageMs >= 0 && ageMs <= input.staleThresholdMs &&
     (activeScope === "meta" || activeScope === "google_ads" || activeScope === "shopify") &&
     activeScope !== input.providerScope && processMeta?.businessAdmitted !== false &&
-    processMeta?.capacityRefusedIdle !== true;
+    processMeta?.capacityRefusedIdle !== true && providerMeta?.businessAdmitted !== false &&
+    providerMeta?.capacityRefusedIdle !== true && providerMeta?.consumeStage !== "admission_refused" &&
+    providerMeta?.consumeOutcome !== "admission_refused";
   return {
     workerId: processWorker?.workerId ?? null,
     lastHeartbeatAt: normalizeTimestamp(processWorker?.lastHeartbeatAt),

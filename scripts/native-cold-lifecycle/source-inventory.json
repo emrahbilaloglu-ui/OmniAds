@@ -408,8 +408,8 @@
     },
     {
       "path": "lib/sync/worker-health.ts",
-      "sha256": "9357d13877ce2e98136d064a219e65ba4b858bda2414c6fd9a2a3e9e5a8f3c60",
-      "bytes": 30004
+      "sha256": "ed6ec19a964b64dff207d0520a60b2cfd1732f435a4b53f90a1aa7c598436f94",
+      "bytes": 30212
     },
     {
       "path": "package-lock.json",
@@ -543,8 +543,8 @@
     },
     {
       "path": "scripts/meta-status-api-readers-pg.ts",
-      "sha256": "4cf1fa6a8687eddfa5bb1f460711a9e49e84738f1f2a8c48c377e7ee536c7e14",
-      "bytes": 7718
+      "sha256": "382cf8c4d029544e5adc2270cbf3c6323a50ef81f23520a3f7e1b4d9706165cc",
+      "bytes": 9141
     },
     {
       "path": "scripts/meta/creative-day-source-evidence-repair.ts",
@@ -827,5 +827,5 @@
       "bytes": 4644
     }
   ],
-  "sourceInventorySha256": "a99e3c9e7656151d5743f39978924b7e4f76bef600b3013d47bffc4d81170212"
+  "sourceInventorySha256": "42b7b65c3531dd295b7017ceb4d034f250868deee80f14a66f5da58045b3bc01"
 }

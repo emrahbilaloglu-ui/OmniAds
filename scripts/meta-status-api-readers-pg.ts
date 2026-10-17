@@ -12,6 +12,10 @@ function routeSql(file: string, functionName: string) {
   function walk(node: ts.Node, inside = false) {
     inside ||= ts.isFunctionDeclaration(node) && node.name?.text === functionName;
     if (inside && ts.isNoSubstitutionTemplateLiteral(node) && node.text.includes("WITH scoped_legacy_snapshots")) queries.push(node.text);
+    if (inside && ts.isTemplateExpression(node) && node.templateSpans.length === 1 &&
+        node.templateSpans[0]!.expression.getText(source) === "input.tableName") {
+      queries.push(node.head.text + "meta_adset_daily" + node.templateSpans[0]!.literal.text);
+    }
     if (inside && ts.isTaggedTemplateExpression(node) && ts.isTemplateExpression(node.template)) {
       const template = node.template;
       assert.equal(template.templateSpans.length, 1);
@@ -32,7 +36,8 @@ export async function verifyMetaStatusApiReadersPg(client: Client) {
   const foreign = "d1800000-0000-4000-8000-000000000002";
   const dates = routeSql("app/api/meta/decisions-workspace/route.ts", "resolveWorkspaceEndDate");
   const pulse = routeSql("app/api/meta/account-pulse/route.ts", "readEngineMetadata");
-  assert.equal(dates.length, 2); assert.equal(pulse.length, 1);
+  const coverageQueries = routeSql("lib/meta/warehouse.ts", "getMetaCoverageForTable");
+  assert.equal(dates.length, 2); assert.equal(pulse.length, 1); assert.equal(coverageQueries.length, 1);
   await runPinnedDbTransaction({ client, timeoutMs: 8000, lockTimeoutMs: 1000, fn: async (db) => {
     await db.query("SET LOCAL TIME ZONE 'UTC'");
     await db.query(`CREATE TEMP TABLE engine_v3_decision_snapshots_daily(business_ref_id uuid,business_id text,creative_id text,as_of_date date) ON COMMIT DROP;
@@ -77,6 +82,20 @@ export async function verifyMetaStatusApiReadersPg(client: Client) {
     const coverage = (account: string | null, start = "2026-01-01", end = "2026-01-03") => getMetaAdSetDailyCoverage({ businessId: business, providerAccountId: account, startDate: start, endDate: end });
     const pooled = await coverage(null);
     assert.deepEqual(pooled, { completed_days: 2, first_completed_date: "2026-01-01", ready_through_date: "2026-01-03", latest_updated_at: "2026-01-12T00:00:00.000Z", total_rows: 3 });
+    const end = new Date("2026-01-03T00:00:00Z"), start = new Date(end);
+    start.setUTCDate(start.getUTCDate() - 760);
+    const [planRow] = await db.query("EXPLAIN (ANALYZE, FORMAT JSON, TIMING OFF) " + coverageQueries[0]!,
+      [business, start.toISOString().slice(0, 10), end.toISOString().slice(0, 10), null]);
+    const nodes: Record<string, unknown>[] = [];
+    function inspect(node: Record<string, unknown>) {
+      nodes.push(node);
+      for (const child of (node.Plans ?? []) as Record<string, unknown>[]) inspect(child);
+    }
+    inspect(planRow!["QUERY PLAN"][0].Plan);
+    assert(nodes.some((node) => node["Function Name"] === "generate_series" && node["Actual Rows"] === 761));
+    assert(nodes.some((node) => /Index/.test(String(node["Node Type"])) &&
+      /business_id/.test(String(node["Index Cond"])) && /date.*day_offset/.test(String(node["Index Cond"]))));
+    assert(!nodes.some((node) => node["Node Type"] === "Seq Scan" && node["Relation Name"] === "meta_adset_daily"));
     assert.equal((await coverage("act-a")).total_rows, 2);
     assert.equal((await coverage("act-b")).completed_days, 1);
     assert.equal((await coverage("missing")).total_rows, 0);
@@ -91,5 +110,5 @@ export async function verifyMetaStatusApiReadersPg(client: Client) {
     // Pinned calls above really used the same temporary fixture connection.
     assert.equal((await getDb().query("SELECT COUNT(*)::int n FROM meta_adset_daily WHERE business_id=$1", [business]))[0]!.n, 3);
   } });
-  console.log("[meta-status-api-readers] PASS actual SQL: native/legacy dates, account ambiguity, original backfill ordering, exact daily coverage and partition semantics");
+  console.log("[meta-status-api-readers] PASS actual SQL: native/legacy dates, account ambiguity, original backfill ordering, exact daily coverage, 761-day indexed bounds and partition semantics");
 }

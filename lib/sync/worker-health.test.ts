@@ -115,7 +115,7 @@ describe("shared process availability does not advance provider evidence", () =>
     expect(getProviderScopeWorkerObservation({ providerScope: "meta", staleThresholdMs: 180000, nowMs, workers: rows }))
       .toMatchObject({ hasFreshHeartbeat: false, lastHeartbeatAt: "2026-10-17T23:50:00.000Z" });
   });
-  it.each(["different_process", "different_build", "different_boot", "stale_process", "future_process", "stopped_process", "disabled_provider", "same_scope", "missing_provider", "admission_refused"])
+  it.each(["different_process", "different_build", "different_boot", "stale_process", "future_process", "stopped_process", "disabled_provider", "same_scope", "missing_provider", "admission_refused", "provider_refused", "provider_capacity_idle"])
     ("refuses an unproven shared process: %s", (reason) => {
       const rows = workers();
       if (reason === "different_process") rows[1]!.workerId = "other-worker";
@@ -128,6 +128,8 @@ describe("shared process availability does not advance provider evidence", () =>
       if (reason === "same_scope") Object.assign(rows[1]!.metaJson, { activeProviderScope: "meta" });
       if (reason === "missing_provider") rows.shift();
       if (reason === "admission_refused") Object.assign(rows[1]!.metaJson, { businessAdmitted: false });
+      if (reason === "provider_refused") Object.assign(rows[0]!.metaJson, { consumeStage: "admission_refused" });
+      if (reason === "provider_capacity_idle") Object.assign(rows[0]!.metaJson, { capacityRefusedIdle: true });
       expect(getProviderSharedProcessObservation({ providerScope: "meta", staleThresholdMs: 180000, nowMs, workers: rows }).waitingForProviderTurn).toBe(false);
     });
 });

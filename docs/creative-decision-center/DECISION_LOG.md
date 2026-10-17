@@ -14265,7 +14265,8 @@ These are bounded read observations, not deployed acceptance or an SLA.
 on another provider are different facts. Availability may recognize only the
 exact registered provider/process ID, equal build and boot stamp, a fresh
 non-future process heartbeat, serving statuses and an identified other active
-provider; refused admission cannot supply this witness. The provider's clock
+provider; refused admission on either the provider or shared process cannot
+supply this witness. The provider's clock
 and freshness remain unchanged and separately exposed. Historical business
 metadata without a live lease may not replace an available worker's context;
 provider and business worker IDs/clocks travel independently. Stopped, stopping,

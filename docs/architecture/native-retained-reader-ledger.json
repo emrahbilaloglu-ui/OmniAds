@@ -371,7 +371,7 @@
     {
       "path": "scripts/meta-status-api-readers-pg.ts",
       "role": "owned-fixture",
-      "sha256": "4cf1fa6a8687eddfa5bb1f460711a9e49e84738f1f2a8c48c377e7ee536c7e14",
+      "sha256": "382cf8c4d029544e5adc2270cbf3c6323a50ef81f23520a3f7e1b4d9706165cc",
       "retention": "D180 actual route SQL and production coverage on owned loopback PostgreSQL temporary fixtures only. No production writes, retained source removal, clock rewrite or execution authority."
     },
     {
@@ -507,5 +507,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "d465277d24ab724142474cc1b7ecf2afb18e188b7518e2aa70f33adf920b2a3c"
+  "sourceInventorySha256": "ef992f31e5d9bceb902a1b4495e7affb18f6cbb0b4e665b63929f209f8853839"
 }

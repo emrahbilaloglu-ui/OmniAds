@@ -9,7 +9,7 @@ import json
 import os
 import re
 import sys
-RUNTIME_INVENTORY = "a99e3c9e7656151d5743f39978924b7e4f76bef600b3013d47bffc4d81170212"
+RUNTIME_INVENTORY = '42b7b65c3531dd295b7017ceb4d034f250868deee80f14a66f5da58045b3bc01'
 sys.path.insert(0, "/opt/adsecute-native-cold/" + RUNTIME_INVENTORY)
 import time
 import subprocess

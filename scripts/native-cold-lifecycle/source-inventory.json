@@ -738,8 +738,8 @@
     },
     {
       "path": "scripts/native-storage-batch/source-pack.ts",
-      "sha256": "109b15ff45ba0c1545d14fb23bd318b784f72696837f15d619cdc126a15549c0",
-      "bytes": 6235
+      "sha256": "24df049ea57b042746f2924b49bd4e1af731bf218719957404d1ecb796134c84",
+      "bytes": 6391
     },
     {
       "path": "scripts/native-storage-batch/stage-entry.ts",
@@ -757,5 +757,5 @@
       "bytes": 4644
     }
   ],
-  "sourceInventorySha256": "9359786b6bd4f45b91c9fd76f53b41bca16d20ab5812db6702b16d4a65cb4548"
+  "sourceInventorySha256": "30c5e80367a9a3e91ba40a7c0c9e9e67eb312a7414d59ee0d70ef35b5f1621f4"
 }

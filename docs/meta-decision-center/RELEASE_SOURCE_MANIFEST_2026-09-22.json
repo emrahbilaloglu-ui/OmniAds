@@ -1,5 +1,5 @@
 {
-  "manifestHash": "a6486a2a4bc5de0431ed01fcb0af6284212744ee5bcee04aabac7d26839bbac5",
+  "manifestHash": "e104a20df549546e5e50eea859857471c9473dbc4b7d5a4ff68c42f75bf4d65c",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -3420,7 +3420,7 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/source-inventory.json",
-      "sha256": "0f2567405848547c7db22626499488a69b7b2b1be308918e20d6ab0f731da071"
+      "sha256": "567875f1898347f81f7b2c54e4cc4fb65aff502c17f376ea7ee74265fa172001"
     },
     {
       "path": "scripts/native-cold-lifecycle/types.ts",
@@ -3588,7 +3588,7 @@
     },
     {
       "path": "scripts/native-storage-batch/source-pack.ts",
-      "sha256": "109b15ff45ba0c1545d14fb23bd318b784f72696837f15d619cdc126a15549c0"
+      "sha256": "24df049ea57b042746f2924b49bd4e1af731bf218719957404d1ecb796134c84"
     },
     {
       "path": "scripts/native-storage-batch/stage-entry.ts",
@@ -3616,7 +3616,7 @@
     },
     {
       "path": "scripts/ops/install-native-cold-runtime.py",
-      "sha256": "82b7a3c76e30e3d750551f06868bc8f06a1fbf9a37d4c3007ba4dc046d8c684e"
+      "sha256": "49eb5a37464ea83063e43dadd3a08a25a92b1291aa816e6e970b86d5a1b4fcbb"
     },
     {
       "path": "scripts/ops/install-native-cold-runtime.test.ts",

@@ -1,5 +1,5 @@
 {
-  "manifestHash": "ca56363f05d824e30e389257d804e4f9005996a15e90f1d477ce6d40a4d6fc40",
+  "manifestHash": "661851ff20eb044c007493fc5bb516d5225e67b96610621bd669dc5e0cc1758e",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -928,7 +928,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "b037408f3fa81dde3423a9d6204553975af4d524d61627aa86d20d07d3a6dc51"
+      "sha256": "c77d02ca4bb55985166c352a39794a383e46fda9a3dc5933624872fd85ae9f09"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -940,7 +940,7 @@
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
-      "sha256": "0b6ebe98ea0ad89083c3bf7bf16409b0631947a7f691bd6c8fe6996f23ceeb23"
+      "sha256": "90ba509eef1de86610eadd174c61ec419b337c883ec2032c5052e3aef2ef1e04"
     },
     {
       "path": "docs/creative-decision-center/V3_TO_V21_MAPPING.md",
@@ -2852,11 +2852,11 @@
     },
     {
       "path": "lib/sync/raw-payload-reusable-space.test.ts",
-      "sha256": "86d9723be2fc327a170dce1255355064be8d5f218ae1e8b2a11cc05cb9e41536"
+      "sha256": "c2a570605e138abaa00728e2399e2a4992fc0bd4f00b06d32da8823d2b002136"
     },
     {
       "path": "lib/sync/raw-payload-reusable-space.ts",
-      "sha256": "5037cbb7cbc5a26db5f9a93353e1d3b8d237cee50399a374d998c6131b89e36b"
+      "sha256": "badf84aa829031eb7373d3209efde186a0d377e99c752c3d0a0d7d8c838ce50d"
     },
     {
       "path": "lib/sync/raw-payload-storage.ts",
@@ -3424,7 +3424,7 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/source-inventory.json",
-      "sha256": "a4b3b8bd4cf16319393250d61321b1051347d02468a119509740e832802f6dd5"
+      "sha256": "4ab81f97aded293be1167409fbf7e5bfd28d071c3d2b4052479b2931167a72ec"
     },
     {
       "path": "scripts/native-cold-lifecycle/types.ts",
@@ -3620,7 +3620,7 @@
     },
     {
       "path": "scripts/ops/install-native-cold-runtime.py",
-      "sha256": "faee0d46be404e5d990d94bad76160b7574b0d022b181d42874b83050807b15f"
+      "sha256": "454adaed3c8a91847efd1edcb6ea1a318944a6687eea163018143290ad245a76"
     },
     {
       "path": "scripts/ops/install-native-cold-runtime.test.ts",
@@ -3635,8 +3635,12 @@
       "sha256": "360979bd2a2b454541916953430e87dac9d9d5744e06820ff2e5718566b8517f"
     },
     {
+      "path": "scripts/raw-payload-reusable-space-pg.ts",
+      "sha256": "09d62f9440594f5501fbd6cdfe0729bb68045b24b6510a8dfeb154d73a1efd03"
+    },
+    {
       "path": "scripts/raw-payload-storage-pg.ts",
-      "sha256": "3bf159c63f0c258e78d49a91c40297bbf91b2724701954cf12c6f4fed478aba5"
+      "sha256": "066262c71122544d7d7dd5e72a0f2aa374724b9a5ba3aade7c8930cae2208a50"
     },
     {
       "path": "scripts/read-path-write-reachability.ts",

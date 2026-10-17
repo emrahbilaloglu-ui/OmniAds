@@ -5,6 +5,8 @@ This is the first file future GPT/Codex/Claude chats should read before working 
 For history-preserving raw payload interning and its reference-reader/rollback
 boundary, read [D178](DECISION_LOG.md#d178--preserve-raw-observations-while-interning-identical-payloads-2026-10-17).
 Implementation, real PG proof and live acceptance remain distinct.
+For bounded, non-extrapolated reusable-space measurement, also read
+[D179](DECISION_LOG.md#d179--bound-raw-map-work-without-extrapolating-free-space-2026-10-17).
 
 For the real deployed-image versus frozen-host-checkout installation boundary,
 read [D176](DECISION_LOG.md#d176--host-archive-installation-verifies-immutable-runtime-source-2026-10-16)

@@ -383,8 +383,8 @@
     },
     {
       "path": "lib/sync/raw-payload-reusable-space.ts",
-      "sha256": "5037cbb7cbc5a26db5f9a93353e1d3b8d237cee50399a374d998c6131b89e36b",
-      "bytes": 6628
+      "sha256": "badf84aa829031eb7373d3209efde186a0d377e99c752c3d0a0d7d8c838ce50d",
+      "bytes": 7069
     },
     {
       "path": "lib/sync/raw-payload-storage.ts",
@@ -802,5 +802,5 @@
       "bytes": 4644
     }
   ],
-  "sourceInventorySha256": "ee8b3b290f08b6fbe161bb6c6ee006b70ee427f49ff488e7b14d56e7c7ad68e3"
+  "sourceInventorySha256": "badc40479f91791486f9405564b76c8a6e5264cf0a12461354acba991a1aa58d"
 }

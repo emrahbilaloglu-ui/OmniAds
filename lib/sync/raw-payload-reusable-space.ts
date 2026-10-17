@@ -10,9 +10,13 @@ export interface RawPayloadReusableTable {
 }
 export type RawPayloadReusableSpace = Record<RawPayloadStorageTable, RawPayloadReusableTable>;
 
+// A lower bound from at most the first4GiB of each heap. Work must not grow
+// with a legacy TOAST relation; unmeasured pages never receive any credit.
+export const RAW_PAYLOAD_MAP_PAGE_LIMIT = 524_288;
+
 /** Only visibility/free-space maps, not payloads/heap tuples or indexes. Credit
  * only all-visible pages with at least half a block free; ignore all other
- * pages. Never extrapolate samples or count dead/unvacuumed tuples. */
+ * pages. Never extrapolate this bounded prefix or count dead/unvacuumed tuples. */
 export const RAW_PAYLOAD_REUSABLE_SPACE_SQL = `
  WITH owner AS MATERIALIZED (
    SELECT c.oid,c.reltoastrelid,pg_total_relation_size(c.oid)::bigint raw_bytes
@@ -25,7 +29,11 @@ export const RAW_PAYLOAD_REUSABLE_SPACE_SQL = `
    SELECT h.*,CASE WHEN h.heap_bytes<=64::bigint*1024*1024*1024 THEN
      (SELECT COALESCE(sum(CASE WHEN f.avail>=4096 THEN
        CASE WHEN (public.pg_visibility_map(h.oid::regclass,f.blkno)).all_visible THEN f.avail ELSE 0 END
-       ELSE 0 END),0)::bigint FROM public.pg_freespace(h.oid::regclass) f)
+       ELSE 0 END),0)::bigint FROM (
+         SELECT g AS blkno,public.pg_freespace(h.oid::regclass,g) AS avail
+         FROM generate_series(0::bigint,LEAST(h.heap_bytes/8192-1,${RAW_PAYLOAD_MAP_PAGE_LIMIT - 1}::bigint)) g
+         OFFSET 0
+       ) f)
      ELSE NULL END visible_free_bytes
    FROM heaps h
  ) SELECT (SELECT raw_bytes FROM owner) raw_bytes,pg_database_size(current_database())::bigint database_bytes,
@@ -48,7 +56,7 @@ export function deriveRawPayloadReusableTable(rawBytes: number, row: Record<stri
     const p = value as Record<string, unknown>, oid = toSafeByteCount(p.oid), length = toSafeByteCount(p.heap_bytes),
       free = toSafeByteCount(p.visible_free_bytes);
     if (oid === null || oid === 0 || seen.has(oid) || !["main", "toast"].includes(String(p.kind)) ||
-      length === null || free === null || length % 8192 !== 0 || free > length || length > 64 * 1024 ** 3 ||
+      length === null || free === null || length % 8192 !== 0 || free > Math.min(length, RAW_PAYLOAD_MAP_PAGE_LIMIT * 8192) || length > 64 * 1024 ** 3 ||
       heaps.some(x => x.kind === p.kind)) return fallback("map_proof_invalid");
     seen.add(oid); heaps.push({ kind: p.kind as "main" | "toast", oid, heapBytes: length, visibleFreeBytes: free });
   }

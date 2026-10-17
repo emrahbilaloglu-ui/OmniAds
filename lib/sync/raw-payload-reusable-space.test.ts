@@ -1,5 +1,5 @@
 import { describe,expect,it,vi } from "vitest";
-import { deriveRawPayloadReusableTable,measureRawPayloadReusableSpace,mergeRawPayloadReusableAccounting } from "./raw-payload-reusable-space";
+import { deriveRawPayloadReusableTable,measureRawPayloadReusableSpace,mergeRawPayloadReusableAccounting,RAW_PAYLOAD_MAP_PAGE_LIMIT } from "./raw-payload-reusable-space";
 import { deriveNativeReusableHeapAccounting,limitNativeReusableHeapCredit } from "./native-reusable-heap";
 const GiB=1024**3, MiB=1024**2;
 const row={raw_bytes:22*GiB,database_bytes:164*GiB,heaps:[
@@ -21,6 +21,7 @@ describe("disjoint raw-payload reusable maps",()=>{
     {...row,heaps:[row.heaps[0],{...row.heaps[1],oid:11}]},
     {...row,heaps:[row.heaps[0],{...row.heaps[1],kind:"main"}]},
     {...row,heaps:[{...row.heaps[1]}]},
+    {...row,heaps:[row.heaps[0],{...row.heaps[1],visible_free_bytes:RAW_PAYLOAD_MAP_PAGE_LIMIT*8192+1}]},
   ])("falls back to raw on unavailable or inconsistent physical proof %#",bad=>{
     expect(deriveRawPayloadReusableTable(22*GiB,bad)).toMatchObject({rawBytes:22*GiB,effectiveBytes:22*GiB,reusableBytes:0,metric:"raw_fallback"});
   });

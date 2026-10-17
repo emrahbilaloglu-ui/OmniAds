@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { Client } from "pg";
 import { assertRawPayloadStorageReady, RAW_PAYLOAD_STORAGE_TABLES } from "../lib/sync/raw-payload-storage";
 import { internRawPayloadPage } from "../lib/sync/raw-payload-compaction";
+import { verifyRawPayloadReusableSpacePg } from "./raw-payload-reusable-space-pg";
 
 /** Real source functions and caller, restricted to the two owned seam DBs.
  * No production connection or customer fixture is accepted. */
@@ -106,4 +107,5 @@ export async function verifyRawPayloadStoragePg(db: Client) {
     } catch (e) { await db.query("ROLLBACK"); throw e; }
   }
   console.log("[raw-payload-storage] PASS real caller: A-B-A original bytes/IDs/clocks, scope/hash/nesting refusal, pinned owner and deferred whole-business erasure");
+  await verifyRawPayloadReusableSpacePg(db);
 }

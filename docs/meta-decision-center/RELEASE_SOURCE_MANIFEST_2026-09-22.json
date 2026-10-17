@@ -1,5 +1,5 @@
 {
-  "manifestHash": "cd3807d1f9d4e88f3237fcb768d75bc90842dc94cb3fb37705d1a023bcadaac3",
+  "manifestHash": "3cc409d8f8acf691e370d56b99516fd1bc2154718ba6e79f4d348100eee72ccf",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -3372,11 +3372,11 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/inventory.test.ts",
-      "sha256": "ba99e4c40716159cad5b57dfcabb494441d67cafb9340e9a0be64f03d52c3340"
+      "sha256": "f32f7cf8d7bfe9102e305914079cc22e473528d50ad549833eefac112105325c"
     },
     {
       "path": "scripts/native-cold-lifecycle/inventory.ts",
-      "sha256": "baafa8cb69d9bbec5dd36f5ee5f1642d11f5daf07aac830d4f66a0416b8664b4"
+      "sha256": "c0ae93308d03a2eb3ed34e50f07228dfa398dc555ee8fe5f6e906bbba510f01b"
     },
     {
       "path": "scripts/native-cold-lifecycle/mirror_protocol.py",
@@ -3424,7 +3424,7 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/source-inventory.json",
-      "sha256": "7b4c7f97e61f300f7ae487ec093cd9f0aa155c02c18cb7b205b7275e2d64c990"
+      "sha256": "964861b37b4a352a5d3278fe634e30b0c266b6a6ab58b50b3627d27053c80533"
     },
     {
       "path": "scripts/native-cold-lifecycle/types.ts",
@@ -3620,7 +3620,7 @@
     },
     {
       "path": "scripts/ops/install-native-cold-runtime.py",
-      "sha256": "d997a9b771df1ecb6cecbbe9b6a5d526cb751c558ace4138f8bfacccf091b692"
+      "sha256": "3f2e11a48e7ff832b20a0ae24d649223a569faf4498d4958ea8bf9d63174cbf3"
     },
     {
       "path": "scripts/ops/install-native-cold-runtime.test.ts",

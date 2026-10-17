@@ -14241,3 +14241,7 @@ SQL. Canonical CI, immutable runtime installation and bounded live readback are
 still required. Rollback retains D178 reference-aware readers/root rows; reverting
 this measurement alone restores slower full-map accounting, never inline-only
 payload readers or native archive retirement.
+
+The retained-reader source ledger is repinned only after reviewing this diff:
+the native relation name remains an aggregate-accounting component label;
+no native source read/selection, pin, retention or historical authority changed.

@@ -1,5 +1,5 @@
 {
-  "manifestHash": "661851ff20eb044c007493fc5bb516d5225e67b96610621bd669dc5e0cc1758e",
+  "manifestHash": "5c4089ddcdbe7abe7413fc048366a0271046b7262d36b2ba4709f040a16ee3a2",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -884,7 +884,7 @@
     },
     {
       "path": "docs/architecture/native-retained-reader-ledger.json",
-      "sha256": "c0b8760e71faee166e105752bc7418ee614ff0e4d2b3fb109cee431f503af67a"
+      "sha256": "12318086abce7e8448c80842f0ecd938300502e4243e6998ac8f62ab6355c3c9"
     },
     {
       "path": "docs/architecture/native-retained-reader-lifecycle.md",
@@ -928,7 +928,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "c77d02ca4bb55985166c352a39794a383e46fda9a3dc5933624872fd85ae9f09"
+      "sha256": "efed28c25402e186925d15e4178db2da83bf49f1ffc02a404ed90c630395c713"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",

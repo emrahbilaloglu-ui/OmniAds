@@ -1,5 +1,5 @@
 {
-  "manifestHash": "a50861b41794a1718b1696d228a3ec58a479d2611b1061669c6987df0f9202cc",
+  "manifestHash": "a6486a2a4bc5de0431ed01fcb0af6284212744ee5bcee04aabac7d26839bbac5",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -1084,7 +1084,7 @@
     },
     {
       "path": "lib/business-deletion-reference-indexes.test.ts",
-      "sha256": "490067b48a4961591b4573c8b45d7a2942cdef0bd9ed954935bd2bb3d6f853bd"
+      "sha256": "f1fc3da7ef2a4f5d156c233af6f041038f7eb863e9e780f49d1a162df682c08a"
     },
     {
       "path": "lib/business-deletion-reference-indexes.ts",
@@ -2568,7 +2568,7 @@
     },
     {
       "path": "lib/meta/purchase-count-parse.test.ts",
-      "sha256": "b8a2b04434f51fc88c95eea59aca5d6da7d0c9e246e79ea1467bbe80156acbcf"
+      "sha256": "8c6803e407078cba0d75d4dd0c1000abe721a47853787dba8ef44219a6889da2"
     },
     {
       "path": "lib/meta/purchase-count-parse.ts",

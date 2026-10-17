@@ -66,7 +66,7 @@ describe("ad-day purchase evidence", () => {
     const receipt = buildMetaAdDayProviderZeroReceiptSql({
       qualifier: "d", cutoffSql: "$5::timestamptz",
     });
-    expect(receipt).toContain("source.payload_json @> jsonb_build_array(d.payload_json)");
+    expect(receipt).toContain("public.adsecute_meta_raw_payload(source) @> jsonb_build_array(d.payload_json)");
     expect(receipt).toContain("source_row.payload = d.payload_json");
     expect(receipt).toContain("manifest.fetch_status = 'completed'");
     expect(receipt).toContain("slice.id = pointer.active_slice_version_id");

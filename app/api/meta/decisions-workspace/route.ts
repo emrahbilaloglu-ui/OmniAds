@@ -424,17 +424,28 @@ async function resolveWorkspaceEndDate(input: {
 }) {
   if (input.explicitEndDate?.trim()) return input.explicitEndDate.trim();
   if (!input.providerAccountId) return previousUtcDate();
+  // Restrict legacy membership work to this canonical business's retained
+  // snapshot IDs first. Keep cross-account ambiguity and newer legacy dates;
+  // a native marker is cache invalidation, not permission to skip that evidence.
   try {
     const rows = await getDb().query<{ latest_as_of: string | null }>(
       `
-        WITH creative_account_keys AS (
+        WITH scoped_legacy_snapshots AS MATERIALIZED (
+          SELECT creative_id, as_of_date
+          FROM engine_v3_decision_snapshots_daily
+          WHERE business_ref_id = $1::uuid
+            AND business_id = $1::text
+        ),
+        creative_account_keys AS (
           SELECT DISTINCT business_id, provider_account_id, creative_id
           FROM meta_creative_dimensions
-          WHERE business_id = $1
+          WHERE business_id = $1::text
+            AND creative_id IN (SELECT creative_id FROM scoped_legacy_snapshots)
           UNION
           SELECT DISTINCT business_id, provider_account_id, creative_id
           FROM meta_creative_daily
-          WHERE business_id = $1
+          WHERE business_id = $1::text
+            AND creative_id IN (SELECT creative_id FROM scoped_legacy_snapshots)
         ),
         creative_account_scope AS (
           -- A creative seen under more than one account is excluded rather than
@@ -449,19 +460,18 @@ async function resolveWorkspaceEndDate(input: {
           SELECT MAX(as_of_date) AS as_of_date
           FROM engine_v3_ad_decision_snapshots_daily
           WHERE business_ref_id = $1::uuid
-            AND business_id = $1
+            AND business_id = $1::text
             AND provider_account_id = $2
           UNION ALL
           SELECT MAX(snapshot.as_of_date) AS as_of_date
-          FROM engine_v3_decision_snapshots_daily snapshot
+          FROM scoped_legacy_snapshots snapshot
           INNER JOIN creative_account_scope account_scope
             ON account_scope.creative_id = snapshot.creative_id
-          WHERE snapshot.business_id::text = $1
           UNION ALL
           SELECT MAX(as_of_date) AS as_of_date
           FROM engine_v3_job_runs
           WHERE business_ref_id = $1::uuid
-            AND business_id = $1
+            AND business_id = $1::text
             AND job_name = 'engine_v3_native_ad_decisions_shadow_job'
         )
         SELECT MAX(as_of_date)::text AS latest_as_of
@@ -481,14 +491,22 @@ async function resolveWorkspaceEndDate(input: {
   try {
     const rows = await getDb().query<{ latest_as_of: string | null }>(
       `
-        WITH creative_account_keys AS (
+        WITH scoped_legacy_snapshots AS MATERIALIZED (
+          SELECT creative_id, as_of_date
+          FROM engine_v3_decision_snapshots_daily
+          WHERE business_ref_id = $1::uuid
+            AND business_id = $1::text
+        ),
+        creative_account_keys AS (
           SELECT DISTINCT business_id, provider_account_id, creative_id
           FROM meta_creative_dimensions
-          WHERE business_id = $1
+          WHERE business_id = $1::text
+            AND creative_id IN (SELECT creative_id FROM scoped_legacy_snapshots)
           UNION
           SELECT DISTINCT business_id, provider_account_id, creative_id
           FROM meta_creative_daily
-          WHERE business_id = $1
+          WHERE business_id = $1::text
+            AND creative_id IN (SELECT creative_id FROM scoped_legacy_snapshots)
         ),
         creative_account_scope AS (
           SELECT creative_id
@@ -498,10 +516,9 @@ async function resolveWorkspaceEndDate(input: {
              AND MIN(provider_account_id) = $2
         )
         SELECT MAX(snapshot.as_of_date)::text AS latest_as_of
-        FROM engine_v3_decision_snapshots_daily snapshot
+        FROM scoped_legacy_snapshots snapshot
         INNER JOIN creative_account_scope account_scope
           ON account_scope.creative_id = snapshot.creative_id
-        WHERE snapshot.business_id::text = $1
       `,
       [input.businessId, input.providerAccountId],
     );

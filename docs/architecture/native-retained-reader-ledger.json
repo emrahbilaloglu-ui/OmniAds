@@ -11,8 +11,8 @@
     {
       "path": "app/api/creatives/decision-engine-v3/evidence/route.ts",
       "role": "serving-and-history",
-      "sha256": "88cc90c46e002c9522115d1369036b52eb376dfc4e25ddfedf588ede9e4bb7b6",
-      "retention": "Keep every retained snapshot and its complete evaluation/context lineage across all dates, epochs and current winners; latest/episode/history/freshness access remains available. D177 applies private no-store uniformly to every returned response, including normal current and refused reads. Original reader selection, lineage SQL, row hashes, historical/current authority and status/body/Retry-After are unchanged; route regression tests cover their preservation."
+      "sha256": "b9eb9237a03256398622a24a7c657731c6d36a187edb96a12ccfe9142e54c79f",
+      "retention": "Keep every retained snapshot and its complete evaluation/context lineage across all dates, epochs and current winners; latest/episode/history/freshness access remains available. D177 applies private no-store uniformly to every returned response, including normal current and refused reads. Original reader selection, lineage SQL, row hashes, historical/current authority and status/body/Retry-After are unchanged; route regression tests cover their preservation. D180 uses the existing exact-Ad subset reader with full original account-manifest validation; absent ungenerated Ads remain 404, missing manifest members still refuse. Persisted lineage/hash and explicit historical/current authority are unchanged."
     },
     {
       "path": "app/api/meta/creative-thumbnail/route.ts",
@@ -23,8 +23,8 @@
     {
       "path": "app/api/meta/decisions-workspace/route.ts",
       "role": "serving-and-history",
-      "sha256": "9f782fce16d32194cf4df80eea282ae2edb7720b81f1b7e84b06c937808e4705",
-      "retention": "Keep every retained snapshot and its complete evaluation/context lineage across all dates, epochs and current winners; latest/episode/history/freshness access remains available."
+      "sha256": "20a4c456518e9340dd8c3bd5aadd2eade7546ed8fb2dc796b4e411f9d9d693ce",
+      "retention": "Keep every retained snapshot and its complete evaluation/context lineage across all dates, epochs and current winners; latest/episode/history/freshness access remains available. D180 bounds date lookup to retained IDs with exact canonical UUID/text business ownership before the unchanged cross-account ambiguity exclusion and native/legacy/job maximum date. All retained rows remain; contradictory ownership cannot set a current date. No native generation selection, hash, epoch or provider authority change."
     },
     {
       "path": "lib/business-archive-erasure.ts",
@@ -369,6 +369,12 @@
       "retention": "Owned public/isolated fixture only; not live consumer completeness."
     },
     {
+      "path": "scripts/meta-status-api-readers-pg.ts",
+      "role": "owned-fixture",
+      "sha256": "382cf8c4d029544e5adc2270cbf3c6323a50ef81f23520a3f7e1b4d9706165cc",
+      "retention": "D180 actual route SQL and production coverage on owned loopback PostgreSQL temporary fixtures only. No production writes, retained source removal, clock rewrite or execution authority."
+    },
+    {
       "path": "scripts/native-archive-pin-census-seam.ts",
       "role": "owned-fixture",
       "sha256": "832d3631403fc3714b7523ade55dfb5f80d0b3e96043e870f7f3fe4ce631b120",
@@ -501,5 +507,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "a681694e8bf90a0d5ae95def3f88a48b5f31045cf36dac7de9b61275db7db9c5"
+  "sourceInventorySha256": "ef992f31e5d9bceb902a1b4495e7affb18f6cbb0b4e665b63929f209f8853839"
 }

@@ -18,7 +18,8 @@ export async function buildColdSourceInventory(root=ROOT):Promise<Inventory>{
     "lib/native-cold-owner-status.ts","lib/admin-system-capacity.ts","app/admin/system-capacity/legacy-page.tsx",
     "lib/creative-decision-engine/native-tenant-catalog.ts","lib/creative-decision-engine/native-tenant-catalog-store.ts",
     "lib/sync/global-kill-switch.ts","lib/sync/raw-payload-storage.ts","lib/sync/raw-payload-compaction.ts",
-    "lib/sync/raw-payload-reusable-space.ts"];
+    "lib/sync/raw-payload-reusable-space.ts","lib/sync/worker-health.ts",
+    "lib/meta/status-types.ts","app/api/meta/status/route.ts","app/api/meta/account-pulse/route.ts"];
   const files:Entry[]=[];
   for(const path of [...new Set<string>([...BATCH_FILES,...ADMISSION_FILES,...PINNED_LIBRARY_FILES,...own,...extra,
     ...ledger.entries.map((e:{path:string})=>e.path),...rawLedger.entries.map((e:{path:string})=>e.path)])].sort()){

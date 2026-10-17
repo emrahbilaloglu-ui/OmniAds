@@ -572,6 +572,12 @@ async function readEvidence(request: NextRequest): Promise<NextResponse> {
     businessId: resolvedBusinessId,
     providerAccountId,
     asOfDate: asOf,
+    // The shared subset reader still proves the complete account manifest;
+    // only this Ad's expensive evidence and ancillary rows need hydration.
+    adIds: [adId],
+    // A new Ad absent from a complete generation remains a 404. A manifest
+    // member whose snapshot disappeared still fails the subset integrity gate.
+    allowMissingProjectedAdIds: true,
   });
   if (inventory.status === "unavailable") {
     return NextResponse.json(

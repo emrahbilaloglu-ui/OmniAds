@@ -1,6 +1,6 @@
 {
   "contract": "raw-payload-reader-ledger.v1",
-  "review": "D178: physical owner decoder only. Original identity, query scope, clocks, metric parsing and provider authority remain unchanged. SELECT-star candidates in replay are resolved at their final payload projection; metadata-only queries confer no payload-read authority. New literal readers or changed bytes require review. Dynamic writer/decoder SQL is separately closed in raw-payload-storage and raw-payload-compaction.",
+  "review": "D178: physical owner decoder only. Original identity, query scope, clocks, metric parsing and provider authority remain unchanged. SELECT-star candidates in replay are resolved at their final payload projection; metadata-only queries confer no payload-read authority. New literal readers or changed bytes require review. Dynamic writer/decoder SQL is separately closed in raw-payload-storage and raw-payload-compaction. D180 changes only exact daily fact coverage aggregation in warehouse.ts; all five original raw payload decoders, scope, identity and clocks remain unchanged.",
   "entries": [
     {
       "path": "lib/meta/ad-day-provider-zero-receipt.ts",
@@ -19,7 +19,7 @@
     },
     {
       "path": "lib/meta/warehouse.ts",
-      "sha256": "78c71879ce9f5a783fb8ae6a8cad66b7dff2454e41fcc9adc19d84d201e9a724",
+      "sha256": "0e32f2d87be2748a1c8a91e5669c4ed43c742399e66b0fa8d36778f7b561dbe8",
       "readers": 5
     },
     {

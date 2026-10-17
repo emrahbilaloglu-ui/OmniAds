@@ -1461,6 +1461,7 @@ async function main() {
     await verifySelectionQueries(client);
     await verifyRolloutOrchestration(client);
     await (await import("./raw-payload-storage-pg")).verifyRawPayloadStoragePg(client);
+    await (await import("./meta-status-api-readers-pg")).verifyMetaStatusApiReadersPg(client);
 
     console.log(`${LABEL} PASS`);
   } catch (error) {

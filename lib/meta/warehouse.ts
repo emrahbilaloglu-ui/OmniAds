@@ -7566,17 +7566,29 @@ async function getMetaCoverageForTable(input: {
   const [rows, partitionRows] = await Promise.all([
     sql.query(
       `
+        -- Exact per-day aggregates keep the existing business/date index useful
+        -- for the full history window, without a whole-table scan or a sorted
+        -- COUNT(DISTINCT). Empty days, row totals and original update clocks
+        -- retain the same meaning as the original range aggregate.
+        WITH days AS (
+          SELECT $2::date + day_offset AS day
+          FROM generate_series(0, $3::date - $2::date) day_offset
+        )
         SELECT
-          COUNT(DISTINCT date) AS completed_days,
-          COALESCE(MIN(date), NULL) AS first_completed_date,
-          COALESCE(MAX(date), NULL) AS ready_through_date,
-          COALESCE(MAX(updated_at), NULL) AS latest_updated_at,
-          COUNT(*) AS total_rows
-        FROM ${input.tableName}
-        WHERE business_id = $1
-          AND date >= $2
-          AND date <= $3
-          AND ($4::text IS NULL OR provider_account_id = $4)
+          COUNT(*) FILTER (WHERE daily.total_rows > 0) AS completed_days,
+          MIN(days.day) FILTER (WHERE daily.total_rows > 0) AS first_completed_date,
+          MAX(days.day) FILTER (WHERE daily.total_rows > 0) AS ready_through_date,
+          MAX(daily.latest_updated_at) AS latest_updated_at,
+          COALESCE(SUM(daily.total_rows), 0) AS total_rows
+        FROM days
+        CROSS JOIN LATERAL (
+          SELECT COUNT(*) AS total_rows, MAX(updated_at) AS latest_updated_at
+          FROM ${input.tableName}
+          WHERE business_id = $1::text
+            AND date = days.day
+            AND ($4::text IS NULL OR provider_account_id = $4::text)
+          OFFSET 0
+        ) daily
       `,
       [
         input.businessId,

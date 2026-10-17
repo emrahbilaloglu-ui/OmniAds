@@ -5100,6 +5100,12 @@ describe("Meta Decisions workspace canonical read model", () => {
     expect(inventory.items.map((item) => item.parentChain.ad?.id)).toEqual([
       decidedAdId,
     ]);
+    const pendingOnly = await readMetaNativeCanonicalDecisionInventory({
+      businessId: "biz_1", providerAccountId: "act_1", adIds: [pendingAdId],
+      allowMissingProjectedAdIds: true,
+    });
+    expect(pendingOnly.status).toBe("available");
+    expect(pendingOnly.items).toEqual([]);
   });
 
   it("still refuses a projected snapshot missing from its verified manifest", async () => {

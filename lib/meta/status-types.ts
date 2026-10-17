@@ -491,6 +491,14 @@ export interface MetaStatusResponse {
   } | null;
   operations?: {
     workerHealthy?: boolean;
+    providerHeartbeatFresh?: boolean;
+    sharedProcess?: {
+      workerId: string | null;
+      lastHeartbeatAt: string | null;
+      heartbeatAgeMs: number | null;
+      activeProviderScope: string | null;
+      waitingForProviderTurn: boolean;
+    };
     heartbeatAgeMs?: number | null;
     runnerLeaseActive?: boolean;
     ownerWorkerId?: string | null;

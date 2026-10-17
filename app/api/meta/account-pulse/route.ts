@@ -221,13 +221,17 @@ async function resolveBusinessTargetRoas(
 async function readEngineMetadata(businessId: string) {
   const sql = getDb();
   const [latest] = (await sql`
+    WITH scoped_snapshots AS MATERIALIZED (
+      SELECT snapshot_date, created_at, engine_version
+      FROM meta_decision_snapshots_daily
+      WHERE business_id = ${businessId}
+        AND kind = 'recommendation'
+    )
     SELECT
       snapshot_date::text AS latest_snapshot_date,
       created_at::text AS engine_last_run,
       engine_version
-    FROM meta_decision_snapshots_daily
-    WHERE business_id = ${businessId}
-      AND kind = 'recommendation'
+    FROM scoped_snapshots
     ORDER BY created_at DESC
     LIMIT 1
   `) as Array<{ engine_last_run: string | null; engine_version: string | null }>;

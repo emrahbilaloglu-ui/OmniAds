@@ -62,15 +62,20 @@ export function selectProviderWorkerForBusiness(input: {
   }>;
 }) {
   const workers = input.workers ?? [];
+  // An explicit live lease remains ownership evidence. A historical worker's
+  // last business is not the current worker's consume stage after a restart.
+  const availableWorkers = workers.filter((worker) =>
+    worker.workerFreshnessState == null || worker.workerFreshnessState === "online",
+  );
   return (
     workers.find(
       (worker) =>
         worker.workerId === (input.activeLeaseOwner ?? "") ||
         worker.workerId.startsWith(`${input.activeLeaseOwner ?? ""}:`)
     ) ??
-    workers.find((worker) => worker.lastConsumedBusinessId === input.businessId) ??
-    workers.find((worker) => worker.lastBusinessId === input.businessId) ??
-    workers.find((worker) => getMetaBusinessIds(worker.metaJson ?? null).includes(input.businessId)) ??
+    availableWorkers.find((worker) => worker.lastConsumedBusinessId === input.businessId) ??
+    availableWorkers.find((worker) => worker.lastBusinessId === input.businessId) ??
+    availableWorkers.find((worker) => getMetaBusinessIds(worker.metaJson ?? null).includes(input.businessId)) ??
     null
   );
 }
@@ -79,6 +84,7 @@ export function selectLatestWorkerForProviderScope(input: {
   providerScope: string;
   workers?: Array<{
     workerId: string;
+    status?: string;
     workerFreshnessState?: "online" | "stale" | "stopped" | "staged";
     lastHeartbeatAt?: string | null;
     providerScope?: string | null;
@@ -117,14 +123,15 @@ export function getProviderScopeWorkerObservation(input: {
   });
   const lastHeartbeatAt = normalizeTimestamp(matchingWorker?.lastHeartbeatAt ?? null);
   const nowMs = input.nowMs ?? Date.now();
+  const rawAgeMs = lastHeartbeatAt ? nowMs - new Date(lastHeartbeatAt).getTime() : NaN;
   const heartbeatAgeMs =
     lastHeartbeatAt != null
       ? Math.max(0, nowMs - new Date(lastHeartbeatAt).getTime())
       : null;
-  const hasFreshHeartbeat =
-    matchingWorker?.workerFreshnessState === "online" ||
-    (heartbeatAgeMs != null &&
-      heartbeatAgeMs <= Math.max(1, input.staleThresholdMs));
+  const hasFreshHeartbeat = matchingWorker?.workerFreshnessState !== "staged" &&
+    matchingWorker?.workerFreshnessState !== "stopped" &&
+    Number.isFinite(rawAgeMs) && rawAgeMs >= 0 &&
+    rawAgeMs <= Math.max(1, input.staleThresholdMs);
 
   return {
     workerId: matchingWorker?.workerId ?? null,
@@ -187,6 +194,58 @@ export function getProviderBusinessWorkerObservation(input: {
         : null,
     batchBusinessIds: getMetaBusinessIds(matchingWorker?.metaJson ?? null),
     metaJson: matchingWorker?.metaJson ?? null,
+  };
+}
+
+/** Process availability is distinct from provider progress. Only the exact
+ * registered provider's current boot can prove it is waiting on another scope.
+ * This never advances the provider clock or changes deployment/data gates. */
+export function getProviderSharedProcessObservation(input: {
+  providerScope: string;
+  staleThresholdMs: number;
+  nowMs?: number;
+  workers?: Array<{
+    workerId: string;
+    providerScope?: string | null;
+    status?: string;
+    workerFreshnessState?: "online" | "stale" | "stopped" | "staged";
+    lastHeartbeatAt?: string | null;
+    metaJson?: Record<string, unknown> | null;
+  }>;
+}) {
+  const provider = selectLatestWorkerForProviderScope(input);
+  const suffix = `:${input.providerScope}`;
+  const processId = provider?.workerId.endsWith(suffix)
+    ? provider.workerId.slice(0, -suffix.length)
+    : null;
+  const processWorker = (input.workers ?? []).find((worker) =>
+    worker.providerScope === "all" && worker.workerId === processId,
+  );
+  const providerMeta = provider?.metaJson;
+  const processMeta = processWorker?.metaJson;
+  const sameBoot = typeof providerMeta?.workerBuildId === "string" && providerMeta.workerBuildId.length > 0 &&
+    providerMeta.workerBuildId === processMeta?.workerBuildId &&
+    typeof providerMeta.workerStartedAt === "string" && providerMeta.workerStartedAt.length > 0 &&
+    providerMeta.workerStartedAt === processMeta?.workerStartedAt;
+  const at = Date.parse(processWorker?.lastHeartbeatAt ?? "");
+  const ageMs = (input.nowMs ?? Date.now()) - at;
+  const activeScope = processMeta?.activeProviderScope;
+  const running = (worker: typeof processWorker) =>
+    worker?.status === "running" || worker?.status === "idle";
+  const waitingForProviderTurn = sameBoot && running(processWorker) && running(provider) &&
+    processWorker?.workerFreshnessState === "online" &&
+    Number.isFinite(ageMs) && ageMs >= 0 && ageMs <= input.staleThresholdMs &&
+    (activeScope === "meta" || activeScope === "google_ads" || activeScope === "shopify") &&
+    activeScope !== input.providerScope && processMeta?.businessAdmitted !== false &&
+    processMeta?.capacityRefusedIdle !== true && providerMeta?.businessAdmitted !== false &&
+    providerMeta?.capacityRefusedIdle !== true && providerMeta?.consumeStage !== "admission_refused" &&
+    providerMeta?.consumeOutcome !== "admission_refused";
+  return {
+    workerId: processWorker?.workerId ?? null,
+    lastHeartbeatAt: normalizeTimestamp(processWorker?.lastHeartbeatAt),
+    heartbeatAgeMs: Number.isFinite(ageMs) && ageMs >= 0 ? ageMs : null,
+    activeProviderScope: typeof activeScope === "string" ? activeScope : null,
+    waitingForProviderTurn,
   };
 }
 
@@ -546,12 +605,13 @@ export async function getSyncWorkerHealthSummary(input?: {
       workerFreshnessState:
         String(row.status) === "disabled"
           ? ("staged" as const)
-          : String(row.status) === "stopped"
+          : String(row.status) === "stopped" || String(row.status) === "stopping"
           ? ("stopped" as const)
           : (() => {
               const heartbeatAt = normalizeTimestamp(row.last_heartbeat_at);
               if (!heartbeatAt) return "stale" as const;
-              return nowMs - new Date(heartbeatAt).getTime() <= staleThresholdMs
+              const ageMs = nowMs - new Date(heartbeatAt).getTime();
+              return ageMs >= 0 && ageMs <= staleThresholdMs
                 ? ("online" as const)
                 : ("stale" as const);
             })(),
@@ -611,7 +671,7 @@ export async function getProviderWorkerHealthState(input: {
 }) {
   const [health, leaseHealth] = await Promise.all([
     getSyncWorkerHealthSummary({
-      providerScopes: [input.providerScope],
+      providerScopes: [input.providerScope, "all"],
       onlineWindowMinutes: Math.max(1, Math.floor(input.staleThresholdMs / 60_000)),
     }).catch(() => null),
     getSyncRunnerLeaseHealth({
@@ -622,7 +682,7 @@ export async function getProviderWorkerHealthState(input: {
   const matchingWorker = getProviderBusinessWorkerObservation({
     businessId: input.businessId,
     activeLeaseOwner: leaseHealth?.activeLeaseOwner ?? null,
-    workers: health?.workers,
+    workers: health?.workers.filter((worker) => worker.providerScope === input.providerScope),
     staleThresholdMs: input.staleThresholdMs,
   });
   const providerWorker = getProviderScopeWorkerObservation({
@@ -632,18 +692,27 @@ export async function getProviderWorkerHealthState(input: {
   });
   const evaluated = evaluateProviderWorkerHealth({
     onlineWorkers: providerWorker.hasFreshHeartbeat ? 1 : 0,
-    lastHeartbeatAt: providerWorker.lastHeartbeatAt,
+    lastHeartbeatAt: providerWorker.hasFreshHeartbeat ? providerWorker.lastHeartbeatAt : null,
     runnerLeaseActive: Boolean(leaseHealth?.hasActiveLease),
     staleThresholdMs: input.staleThresholdMs,
   });
+  const sharedProcess = getProviderSharedProcessObservation({
+    providerScope: input.providerScope,
+    staleThresholdMs: input.staleThresholdMs,
+    workers: health?.workers,
+  });
   return {
     providerScope: input.providerScope,
-    workerHealthy: evaluated.workerHealthy,
+    workerHealthy: evaluated.workerHealthy || sharedProcess.waitingForProviderTurn,
     heartbeatAgeMs: providerWorker.heartbeatAgeMs,
     runnerLeaseActive: evaluated.runnerLeaseActive,
     hasFreshHeartbeat: providerWorker.hasFreshHeartbeat,
+    providerWorkerId: providerWorker.workerId,
+    sharedProcess,
     ownerWorkerId: leaseHealth?.activeLeaseOwner ?? null,
     matchedWorkerId: matchingWorker.workerId,
+    businessWorkerFreshnessState: matchingWorker.workerFreshnessState,
+    businessLastHeartbeatAt: matchingWorker.lastHeartbeatAt,
     lastHeartbeatAt: providerWorker.lastHeartbeatAt,
     latestLeaseUpdatedAt: leaseHealth?.latestLeaseUpdatedAt ?? null,
     workerFreshnessState: providerWorker.workerFreshnessState,

@@ -14245,3 +14245,67 @@ payload readers or native archive retirement.
 The retained-reader source ledger is repinned only after reviewing this diff:
 the native relation name remains an aggregate-accounting component label;
 no native source read/selection, pin, retention or historical authority changed.
+
+## D180 — Separate shared worker availability and bound status API read work (2026-10-18)
+
+**Observed.** The current shared process was running Google while its Meta and
+Shopify provider clocks aged. The Meta status route labelled that interval
+`operations_worker_offline`; business metadata could also come from a previous
+boot and was displayed with the current provider's freshness. A current cold
+workspace source probe spent two eight-second deadlines in legacy date lookups.
+A normal current evidence GET hydrated all 2,517 account Ads for one requested
+Ad (14.5 seconds in the source reader versus 140 ms for the existing subset
+reader, with exact selected-decision parity). A status probe spent its eight-
+second deadline in the 761-day Ad-set coverage aggregate. Its default plan
+scanned the entire table; the proposed point-day plan uses the existing
+business/date index and returned the same 403,799 rows and all coverage fields.
+These are bounded read observations, not deployed acceptance or an SLA.
+
+**Availability.** A provider's own fresh heartbeat and a shared process waiting
+on another provider are different facts. Availability may recognize only the
+exact registered provider/process ID, equal build and boot stamp, a fresh
+non-future process heartbeat, serving statuses and an identified other active
+provider; refused admission on either the provider or shared process cannot
+supply this witness. The provider's clock
+and freshness remain unchanged and separately exposed. Historical business
+metadata without a live lease may not replace an available worker's context;
+provider and business worker IDs/clocks travel independently. Stopped, stopping,
+staged or future observations do not become fresh provider heartbeats.
+Deployment's provider heartbeat gates and data/decision authority gates are
+unchanged; no provider progress or successful job is invented.
+
+**Reads.** Current evidence uses the existing exact-Ad subset reader, which
+first proves the complete original account manifest and then hydrates only the
+requested Ad. A missing ungenerated Ad keeps its 404; a disappeared manifest
+member or corrupt generation still refuses. Explicit historical requests and
+original hash/lineage checks, no-store and degraded-generation rules remain.
+
+The workspace first materializes retained legacy snapshot IDs for the exact
+canonical business UUID plus its text identity, then performs the same
+cross-account membership exclusion and maximum-date selection over native,
+legacy and job candidates. A newer real legacy date is not replaced by a
+native cache marker. Rows with contradictory canonical ownership cannot set a
+current date; no retained bytes are changed. Account-pulse metadata first
+materializes the business/kind subset before the original created-at ordering;
+a later backfill of an older day still wins exactly as before.
+
+Daily coverage uses integer calendar-day offsets and exact per-day counts and
+update maxima through the existing business/date index. Summing counts and
+counting nonempty days preserves the original range aggregate, including empty
+and reversed ranges, account filters, original timestamps and the existing
+partition-versus-fact precedence. It does not substitute cached progress,
+partition counts alone, estimates or new indexes. Deadlines, history windows,
+capacity budgets and physical reserves are unchanged. Status adds total server
+timing for observable acceptance.
+
+**Validation and rollback.** Owned PostgreSQL executes the actual route SQL and
+production coverage reader against scoped fixtures: account ambiguity, newer
+legacy dates, foreign ownership, later backfills, empty/reversed ranges,
+multiple accounts and original partition precedence. Existing full-generation,
+subset, degraded and historical guards stay required. Source ledgers and the
+runtime inventory must be reviewed/repinned before exact CI/images/deployment.
+A source probe or passing reader does not prove a new generation under the new
+release. Require an actual post-deployment successful producer and independent
+API lineage/hash readback. Roll back the web/worker pair to the preceding
+reference-aware release, with compatible archive metadata and the new native
+archive writer still off; no data migration or history deletion is involved.

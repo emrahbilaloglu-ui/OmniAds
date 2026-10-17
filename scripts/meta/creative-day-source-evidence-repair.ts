@@ -540,7 +540,7 @@ async function loadInputs(scope: Scope): Promise<RepairInputs> {
   const snapshots = ids.length ? await getDb().query<Snapshot>(
     `SELECT id::text AS id, business_id, provider_account_id, endpoint_name, entity_scope,
         start_date::text AS start_date, end_date::text AS end_date,
-        status, provider_http_status, payload_hash, payload_json,
+        status, provider_http_status, payload_hash, public.adsecute_meta_raw_payload(meta_raw_snapshots) AS payload_json,
         fetched_at::text AS fetched_at, created_at::text AS created_at,
         updated_at::text AS updated_at,
         request_context, partition_id::text AS partition_id, run_id,

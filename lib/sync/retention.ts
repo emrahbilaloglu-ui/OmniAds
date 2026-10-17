@@ -70,6 +70,7 @@ export const SYNC_RETENTION_DELETE_TARGET_TABLES = [
  * quietly losing provenance in production.
  */
 export const META_RAW_SNAPSHOT_INBOUND_REFERENCE_TABLES = [
+  "meta_raw_snapshots",
   "meta_account_daily",
   "meta_campaign_daily",
   "meta_adset_daily",
@@ -81,6 +82,7 @@ export const META_RAW_SNAPSHOT_INBOUND_REFERENCE_TABLES = [
 ] as const;
 
 export const SHOPIFY_RAW_SNAPSHOT_INBOUND_REFERENCE_TABLES = [
+  "shopify_raw_snapshots",
   "shopify_entity_payload_archives",
   "shopify_orders",
   "shopify_order_lines",
@@ -90,12 +92,12 @@ export const SHOPIFY_RAW_SNAPSHOT_INBOUND_REFERENCE_TABLES = [
   "shopify_sales_events",
 ] as const;
 
-function inboundReferenceGuard(tables: readonly string[], alias: string) {
+export function rawSnapshotInboundReferenceGuard(tables: readonly string[], alias: string) {
   // Rendered from a closed literal list, never from input.
   return tables
     .map(
       (table) =>
-        `NOT EXISTS (SELECT 1 FROM ${table} referrer WHERE referrer.source_snapshot_id = ${alias}.id)`,
+        `NOT EXISTS (SELECT 1 FROM ${table} referrer WHERE referrer.${["meta_raw_snapshots", "shopify_raw_snapshots"].includes(table) ? "payload_ref_id" : "source_snapshot_id"} = ${alias}.id)`,
     )
     .join("\n              AND ");
 }
@@ -139,7 +141,7 @@ export const META_RAW_SNAPSHOT_RETENTION_CANDIDATE_SQL = `
                   )
                 )
               )
-              AND ${inboundReferenceGuard(META_RAW_SNAPSHOT_INBOUND_REFERENCE_TABLES, "snapshot")}
+              AND ${rawSnapshotInboundReferenceGuard(META_RAW_SNAPSHOT_INBOUND_REFERENCE_TABLES, "snapshot")}
             ORDER BY snapshot.fetched_at ASC, snapshot.id ASC
             LIMIT $3
             FOR UPDATE OF snapshot SKIP LOCKED`;
@@ -153,7 +155,7 @@ export const SHOPIFY_RAW_SNAPSHOT_RETENTION_CANDIDATE_SQL = `
                 FROM shopify_raw_snapshot_observations receipt
                 WHERE receipt.snapshot_id = snapshot.id
               )
-              AND ${inboundReferenceGuard(SHOPIFY_RAW_SNAPSHOT_INBOUND_REFERENCE_TABLES, "snapshot")}
+              AND ${rawSnapshotInboundReferenceGuard(SHOPIFY_RAW_SNAPSHOT_INBOUND_REFERENCE_TABLES, "snapshot")}
             ORDER BY snapshot.fetched_at ASC, snapshot.id ASC
             LIMIT $2
             FOR UPDATE OF snapshot SKIP LOCKED`;

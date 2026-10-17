@@ -4355,7 +4355,7 @@ async function main() {
     // bounded-plan assertions. Both schemas are freshly, fully migrated.
     for (const [deletionDatabaseName, file, label, count] of [
       ["adsecute_archive_erasure", "lib/business-archive-erasure.db.test.ts", "Automatic archive offboarding DB seam check", 9],
-      ["adsecute_business_deletion", "lib/business-deletion.db.test.ts", "Business data deletion and rollback DB seam check", 67],
+      ["adsecute_business_deletion", "lib/business-deletion.db.test.ts", "Business data deletion and rollback DB seam check", 68],
     ] as const) {
       const deletionUrl = new URL(databaseUrl);
       if (deletionUrl.hostname !== "127.0.0.1" || ["5432", "15432", ""].includes(deletionUrl.port))

@@ -3,6 +3,7 @@ import { getDbWithTimeout } from "@/lib/db";
 import {
   META_RAW_SNAPSHOT_INBOUND_REFERENCE_TABLES,
   SHOPIFY_RAW_SNAPSHOT_INBOUND_REFERENCE_TABLES,
+  rawSnapshotInboundReferenceGuard,
 } from "@/lib/sync/retention";
 
 /**
@@ -113,12 +114,7 @@ function digest(parts: readonly string[]) {
  * two cannot drift; the real-PG seam asserts those lists match the catalog.
  */
 function inboundReferenceExclusion(tables: readonly string[], alias: string) {
-  return tables
-    .map(
-      (table) =>
-        `NOT EXISTS (SELECT 1 FROM ${table} referrer WHERE referrer.source_snapshot_id = ${alias}.id)`,
-    )
-    .join("\n    AND ");
+  return rawSnapshotInboundReferenceGuard(tables,alias);
 }
 
 /**

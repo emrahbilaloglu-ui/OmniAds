@@ -9,6 +9,7 @@ type Entry={path:string;sha256:string;bytes:number};
 interface Inventory {contract:"native-cold-source-inventory.v1";files:Entry[];sourceInventorySha256:string}
 export async function buildColdSourceInventory(root=ROOT):Promise<Inventory>{
   const ledger=JSON.parse(await readFile(join(root,"docs/architecture/native-retained-reader-ledger.json"),"utf8"));
+  const rawLedger=JSON.parse(await readFile(join(root,"docs/architecture/raw-payload-reader-ledger.json"),"utf8"));
   const own=(await readdir(join(root,"scripts/native-cold-lifecycle"))).filter(n=>/\.(?:ts|py)$/.test(n)&&
     !n.includes(".test.")&&!n.endsWith("-test.py")).map(n=>`scripts/native-cold-lifecycle/${n}`);
   const extra=["docker-compose.yml","Dockerfile",".dockerignore","package.json","package-lock.json","scripts/business-archive-erasure-worker.ts","lib/business-archive-erasure-worker.ts",
@@ -16,10 +17,11 @@ export async function buildColdSourceInventory(root=ROOT):Promise<Inventory>{
     "lib/native-cold-erasure.ts","lib/native-cold-session.ts","lib/business-deletion-jobs.ts",
     "lib/native-cold-owner-status.ts","lib/admin-system-capacity.ts","app/admin/system-capacity/legacy-page.tsx",
     "lib/creative-decision-engine/native-tenant-catalog.ts","lib/creative-decision-engine/native-tenant-catalog-store.ts",
-    "lib/sync/global-kill-switch.ts"];
+    "lib/sync/global-kill-switch.ts","lib/sync/raw-payload-storage.ts","lib/sync/raw-payload-compaction.ts",
+    "lib/sync/raw-payload-reusable-space.ts"];
   const files:Entry[]=[];
   for(const path of [...new Set<string>([...BATCH_FILES,...ADMISSION_FILES,...PINNED_LIBRARY_FILES,...own,...extra,
-    ...ledger.entries.map((e:{path:string})=>e.path)])].sort()){
+    ...ledger.entries.map((e:{path:string})=>e.path),...rawLedger.entries.map((e:{path:string})=>e.path)])].sort()){
     need(!path.split("/").includes("..")&&/^[a-zA-Z0-9_./[\]-]+$/.test(path),"FIXED_SOURCE_INVENTORY_PATH");
     const b=await readFile(join(root,path));files.push({path,sha256:archiveDigest(b),bytes:b.length});
   }

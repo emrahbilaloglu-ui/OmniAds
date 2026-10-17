@@ -597,7 +597,7 @@ async function readEvidence(options: Options, lockPointer: boolean): Promise<Rep
       SELECT id, business_id, provider_account_id, partition_id::text,
         run_id, endpoint_name, entity_scope, start_date::text, end_date::text,
         page_index, status, provider_http_status, request_context,
-        payload_json, content_key, fetched_at::text, created_at::text,
+        public.adsecute_meta_raw_payload(meta_raw_snapshots) AS payload_json, content_key, fetched_at::text, created_at::text,
         updated_at::text
       FROM meta_raw_snapshots WHERE id = $1::uuid
     `, [snapshotIds[0]])

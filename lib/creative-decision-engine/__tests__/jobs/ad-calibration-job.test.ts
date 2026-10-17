@@ -1,3 +1,4 @@
+import {rawPayloadSchemaStatements} from "@/lib/sync/raw-payload-storage";
 import fs from "node:fs";
 import { runNativeAdCalibrationSchemaGate } from "@/lib/migrations";
 import { WarehouseNativeAdAccountProfileDataSource } from "../../ad-account-decision-profile-store";
@@ -5130,6 +5131,7 @@ async function createEphemeralSchema(pool: Pool) {
       created_at TIMESTAMPTZ,
       updated_at TIMESTAMPTZ
     );
+    ${rawPayloadSchemaStatements("meta_raw_snapshots").join("; ")};
     CREATE TABLE meta_sync_partitions (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       business_id TEXT,

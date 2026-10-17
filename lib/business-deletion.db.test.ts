@@ -18,6 +18,7 @@ import { NATIVE_AD_OPERATOR_RESPONSE_CONTRACT_VERSION } from "@/lib/creative-dec
 import { BUSINESS_ERASURE_REFERENCE_INDEXES, BUSINESS_ERASURE_REFERENCE_INDEX_STATUS_SQL, BUSINESS_ERASURE_FULL_BINDING_INDEXES, BUSINESS_ERASURE_FULL_BINDING_STATUS_SQL, ensureBusinessErasureReferenceIndexes } from "@/lib/business-deletion-reference-indexes";
 import { assertBusinessErasureScalarIndexCapacity, releaseGateProviderScopeIsCurrent, runReleaseGateProviderScopeMigration } from "@/lib/migrations";
 import { BUSINESS_ERASURE_STATE_RUN_BOUNDS, BUSINESS_ERASURE_STATE_RUN_INDEX, ensureBusinessErasureStateRunIndex } from "@/lib/business-deletion-state-run-index";
+import {internRawPayloadPage} from "@/lib/sync/raw-payload-compaction";
 
 // Only the migrated, disposable cluster may execute these destructive fixtures.
 const seam = process.env.ADSECUTE_EPHEMERAL_DB_SEAM === "1";
@@ -83,6 +84,30 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
   beforeEach(() => {
     process.env.ADSECUTE_SYNC_GLOBAL_ENABLED = "enabled";
     process.env.ADSECUTE_SYNC_LANE_ASSIGNMENT_MUTATION_ENABLED = "enabled";
+  });
+
+  it("erases actual interned Meta and Shopify owners and aliases through the application while preserving the foreign original",async()=>{
+    const {businessId,otherId}=await fixture(),sql=getDb();
+    const payload=JSON.stringify(Array.from({length:400},(_,i)=>({id:String(i),value:`stable-${i*7927}-original`}))),foreign=new Map<string,unknown>();
+    for(const table of ["meta_raw_snapshots","shopify_raw_snapshots"] as const){
+      const ids=[randomUUID(),randomUUID(),randomUUID()];
+      for(let i=0;i<3;i++)await sql.query(`INSERT INTO public.${table}
+        (id,business_id,provider_account_id,endpoint_name,entity_scope,start_date,end_date,payload_json,payload_hash,fetched_at,created_at,updated_at)
+        VALUES($1::uuid,$2,'legacy-owned-account','orders','scope','1900-01-01','1900-01-01',$3::jsonb,'raw-erasure-parity',$4::timestamptz,$4::timestamptz,$4::timestamptz)`,
+      [ids[i],i===2?otherId:businessId,payload,`1900-01-0${i+1}T00:00:00Z`]);
+      await withPinnedDbClient(async db=>{
+        await db.query("BEGIN;SET LOCAL enable_seqscan=off;SET LOCAL statement_timeout='3s'");
+        try{await internRawPayloadPage(db,table);await db.query("COMMIT");}catch(e){await db.query("ROLLBACK");throw e;}
+      });
+      expect((await sql.query(`SELECT payload_ref_id::text FROM public.${table} WHERE id=$1::uuid`,[ids[1]]))[0]?.payload_ref_id).toBe(ids[0]);
+      foreign.set(table,await sql.query(`SELECT to_jsonb(s)::text bytes FROM public.${table} s WHERE business_id=$1 ORDER BY id`,[otherId]));
+    }
+    await deleteBusinessWithData(businessId);
+    expect(await remains(businessId)).toBe(false);
+    for(const table of ["meta_raw_snapshots","shopify_raw_snapshots"]){
+      expect(await sql.query(`SELECT id FROM public.${table} WHERE business_id=$1`,[businessId])).toEqual([]);
+      expect(await sql.query(`SELECT to_jsonb(s)::text bytes FROM public.${table} s WHERE business_id=$1 ORDER BY id`,[otherId])).toEqual(foreign.get(table));
+    }
   });
 
   it("erases unshared provider registry metadata including an account owned only through snapshot items", async()=>{

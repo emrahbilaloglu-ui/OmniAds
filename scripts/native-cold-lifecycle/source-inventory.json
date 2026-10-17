@@ -78,8 +78,8 @@
     },
     {
       "path": "lib/business-deletion-reference-indexes.ts",
-      "sha256": "5747ba0c08f9a16d0c9dd2255794e51816e791dc93e24426f8242bfba2e460c4",
-      "bytes": 16450
+      "sha256": "1b1a97ffc118d9b8a543060aed17c19717d9e0073d0f4ec51a2a2678f0a62fe9",
+      "bytes": 16668
     },
     {
       "path": "lib/business-deletion.ts",
@@ -257,6 +257,11 @@
       "bytes": 40780
     },
     {
+      "path": "lib/meta/ad-day-provider-zero-receipt.ts",
+      "sha256": "1bdd6fcd3fdbf0609382fb2fce8d2a5ec3c03a0ecb7cfe9361fcf69be84702d5",
+      "bytes": 15016
+    },
+    {
       "path": "lib/meta/ads-action-log.ts",
       "sha256": "1ba6c4c9cf955f2dbadd4282d8005551d10a830454c16b26b299f14c7bfa7006",
       "bytes": 192927
@@ -275,6 +280,11 @@
       "path": "lib/meta/campaign-label-guard.ts",
       "sha256": "9f3282e093c25daa0bd6489ffc8c91d21df1cf8db5b4c3d47c053e02f69a1117",
       "bytes": 36550
+    },
+    {
+      "path": "lib/meta/config-field-source-contract.ts",
+      "sha256": "7a61962e339e3f93931ed39210a874f198155f707c08b4ce63fc02b39c071bc8",
+      "bytes": 132743
     },
     {
       "path": "lib/meta/controlled-experiment-registry.ts",
@@ -302,14 +312,24 @@
       "bytes": 2095
     },
     {
+      "path": "lib/meta/raw-config-receipts.ts",
+      "sha256": "a9c481cdef24edf8a987493c8ca335fb4efd978a3c64c131a96ddcebbe60a4d8",
+      "bytes": 33233
+    },
+    {
+      "path": "lib/meta/warehouse.ts",
+      "sha256": "78c71879ce9f5a783fb8ae6a8cad66b7dff2454e41fcc9adc19d84d201e9a724",
+      "bytes": 541344
+    },
+    {
       "path": "lib/migration-verification.ts",
       "sha256": "f4bf802a79cdb3e32d82e74b0e0928e613fcf92af4f85c8c150c07099214ffb3",
       "bytes": 46690
     },
     {
       "path": "lib/migrations.ts",
-      "sha256": "1c835324802c9c9774721c1fff1a30422c127717e611be13229e6cb896894425",
-      "bytes": 850616
+      "sha256": "5257614f2898ef2ee2fc12cb95781150d2863cd4552dfa2a1bedf43cf5f1b94f",
+      "bytes": 851684
     },
     {
       "path": "lib/native-cold-erasure.ts",
@@ -332,9 +352,14 @@
       "bytes": 20420
     },
     {
+      "path": "lib/shopify/warehouse.ts",
+      "sha256": "d0129cf9c7fc67686314003f07f5cd7029a5602cb9459b5f697fc5445fcf67bd",
+      "bytes": 129607
+    },
+    {
       "path": "lib/sync/db-growth-fence.ts",
-      "sha256": "f1f8d99615ca5de0a24c13cfd30f66c38fa57660e8dbb182e89bc91db3b91bb5",
-      "bytes": 53183
+      "sha256": "371582601a1c71daa974789cc65249ce8213a0c4a6ddaa8ce888661bc2d0a1b5",
+      "bytes": 55217
     },
     {
       "path": "lib/sync/global-kill-switch.ts",
@@ -343,13 +368,28 @@
     },
     {
       "path": "lib/sync/native-reusable-heap.ts",
-      "sha256": "f4474871395b63cd18d980646ccc64a09cc18e81c0fab3f46ba49b0792cd17cb",
-      "bytes": 3126
+      "sha256": "32ab1eb6d5e8d20d6663cf99b8e8a4c4542e4771b06e51bc1ae96dc468cf7f7d",
+      "bytes": 3234
     },
     {
       "path": "lib/sync/native-storage-maintenance-admission.ts",
       "sha256": "9003be939c8c828a78b005f49e9d76993c51fb97cc7bf99ef29a1ab4f976a1f0",
       "bytes": 9439
+    },
+    {
+      "path": "lib/sync/raw-payload-compaction.ts",
+      "sha256": "a217b51faafba4d5c8e80e921ce4b80dddd6fb7d51003a7381a8c8197f5db83e",
+      "bytes": 9083
+    },
+    {
+      "path": "lib/sync/raw-payload-reusable-space.ts",
+      "sha256": "5037cbb7cbc5a26db5f9a93353e1d3b8d237cee50399a374d998c6131b89e36b",
+      "bytes": 6628
+    },
+    {
+      "path": "lib/sync/raw-payload-storage.ts",
+      "sha256": "d6a80da7021239a8236f1d02d6f0f3293f0248e92c9b977ab29e5c9251b2f564",
+      "bytes": 9203
     },
     {
       "path": "package-lock.json",
@@ -398,8 +438,18 @@
     },
     {
       "path": "scripts/business-archive-erasure-worker.ts",
-      "sha256": "244d59a6e24203cb0b4175f7dafc087d261129dce8f6ca61c572e0c5d09e9ffe",
-      "bytes": 2632
+      "sha256": "09721b59c9991fe25dba54271a3992840c51700e1faaca6832c565139286837b",
+      "bytes": 2929
+    },
+    {
+      "path": "scripts/creative-decision-center/exact-pit-confirmatory-replay.ts",
+      "sha256": "a05dc655e17068d8edd795150f5fcf79eeb598a576fcdc916f7bde6a79156e06",
+      "bytes": 145286
+    },
+    {
+      "path": "scripts/creative-decision-center/h1-country-parent-challenger.ts",
+      "sha256": "8593d55a2c3a8a999306a6e66c758b64518c8df6ac74471943d67bb1261eccbc",
+      "bytes": 82127
     },
     {
       "path": "scripts/creative-decision-center/meta-decisions-creatives-acceptance.ts",
@@ -427,19 +477,24 @@
       "bytes": 61063
     },
     {
+      "path": "scripts/creative-decision-center/raw-snapshot-pit-integrity.ts",
+      "sha256": "cd843377fbe2185367dd9f1cb95deb7d40522e556c2d9deafa0939961397735b",
+      "bytes": 43415
+    },
+    {
       "path": "scripts/ephemeral-postgres-controlled-experiment-registry-seam-child.ts",
       "sha256": "db0c9c72ae017e99ff5fbb8b73729970d79b9221fa2a501fc38ba27f3d7cb9b5",
       "bytes": 54016
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
-      "sha256": "ed5be14144328a83c5837db5bf0779ad30dc6c1b3e92b6cd64752ff5b83f66d6",
+      "sha256": "33f6fb81035abde13279196d0bd724d1497099260679d300d622bd9f62e2f8ae",
       "bytes": 171064
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
-      "sha256": "09beaea7658a6e742579752be25421577430ec8d83c8fba7cdbaf4f926cb7932",
-      "bytes": 170431
+      "sha256": "b69c7da547911a013aae80c6141441254a1f67054d3422963d7a2b656a4ed6e1",
+      "bytes": 170575
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-fact-ownership-seam-child.ts",
@@ -465,6 +520,16 @@
       "path": "scripts/generate-native-segmented-reference-worker-fixture.ts",
       "sha256": "29511a39e1e0068be1e05fe11e4bdfe8498182b39ee5541b4889e11b8af6b4ca",
       "bytes": 4447
+    },
+    {
+      "path": "scripts/meta/creative-day-source-evidence-repair.ts",
+      "sha256": "3aace5535fd78e435562b18bae7c6c02978ba4f44437783e4fe9eff559be880a",
+      "bytes": 36428
+    },
+    {
+      "path": "scripts/meta/historical-source-slice-repair.ts",
+      "sha256": "3ede7548ce01e9652628cd7070e90574055966fb61625c411e62fd2c954a88f6",
+      "bytes": 42297
     },
     {
       "path": "scripts/native-archive-pin-census-seam.ts",
@@ -538,8 +603,8 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/inventory.ts",
-      "sha256": "8c8566e5b315b32770e1f31196dbb3f1918a96d49daf8c81966394f6c678745e",
-      "bytes": 3577
+      "sha256": "c0ae93308d03a2eb3ed34e50f07228dfa398dc555ee8fe5f6e906bbba510f01b",
+      "bytes": 3862
     },
     {
       "path": "scripts/native-cold-lifecycle/mirror-endpoint.py",
@@ -718,8 +783,8 @@
     },
     {
       "path": "scripts/native-storage-batch/source-pack.ts",
-      "sha256": "109b15ff45ba0c1545d14fb23bd318b784f72696837f15d619cdc126a15549c0",
-      "bytes": 6235
+      "sha256": "24df049ea57b042746f2924b49bd4e1af731bf218719957404d1ecb796134c84",
+      "bytes": 6391
     },
     {
       "path": "scripts/native-storage-batch/stage-entry.ts",
@@ -737,5 +802,5 @@
       "bytes": 4644
     }
   ],
-  "sourceInventorySha256": "064f61d2d0bae598a02a3413e989b03c7a411bb7fd37858f90a4ef7855bd091e"
+  "sourceInventorySha256": "222e1e2858fa8fa279fbbb5699c9f4b8e4b48a4744932c17cadaef3ec67007b5"
 }

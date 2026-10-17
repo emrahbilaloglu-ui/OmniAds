@@ -433,6 +433,21 @@ export function buildShopifyRawSnapshotContentKey(input: {
  * `source_snapshot_id` FK points at `shopify_raw_snapshots(id)` and must keep
  * resolving unchanged.
  */
+/** Original raw payload under its own observation identity. Storage ownership
+ * supplies bytes only; it never replaces this snapshot's clocks or provenance. */
+export async function readShopifyRawSnapshotOriginal(input: {
+  businessId:string;providerAccountId:string;snapshotId:string;
+}) {
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:read_raw_original");
+  const rows=await getDb().query<{id:string;payload_hash:string;payload_json:unknown;fetched_at:string}>(`
+    SELECT snapshot.id::text,snapshot.payload_hash,
+      public.adsecute_shopify_raw_payload(snapshot) AS payload_json,snapshot.fetched_at::text
+    FROM shopify_raw_snapshots snapshot WHERE snapshot.id=$1::uuid
+      AND snapshot.business_id=$2 AND snapshot.provider_account_id=$3`,
+  [input.snapshotId,input.businessId,input.providerAccountId]);
+  return rows[0]??null;
+}
+
 export async function insertShopifyRawSnapshot(input: ShopifyRawSnapshotRecord) {
   await assertShopifyWarehouseTablesReady("shopify_warehouse:insert_raw_snapshot");
   const refs = await resolveSingleShopifyCanonicalReferenceContext({

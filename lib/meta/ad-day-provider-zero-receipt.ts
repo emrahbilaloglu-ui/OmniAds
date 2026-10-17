@@ -259,12 +259,12 @@ export function buildMetaAdDayProviderZeroReceiptSql(options: {
               )
             )
           )
-          AND source.payload_json @> jsonb_build_array(${d}payload_json)
+          AND public.adsecute_meta_raw_payload(source) @> jsonb_build_array(${d}payload_json)
           AND EXISTS (
             SELECT 1
             FROM jsonb_array_elements(
-              CASE WHEN jsonb_typeof(source.payload_json) = 'array'
-                THEN source.payload_json ELSE '[]'::jsonb END
+              CASE WHEN jsonb_typeof(public.adsecute_meta_raw_payload(source)) = 'array'
+                THEN public.adsecute_meta_raw_payload(source) ELSE '[]'::jsonb END
             ) AS source_row(payload)
             WHERE source_row.payload = ${d}payload_json
           )

@@ -1,5 +1,6 @@
 import { getDbWithTimeout } from "@/lib/db";
 import { deriveNativeReusableHeapAccounting, limitNativeReusableHeapCredit, type NativeReusableHeapAccounting } from "./native-reusable-heap";
+import { measureRawPayloadReusableSpace, mergeRawPayloadReusableAccounting, type RawPayloadReusableSpace } from "./raw-payload-reusable-space";
 import {
   deriveEffectiveStateHistoryBytes,
   toSafeByteCount,
@@ -590,6 +591,7 @@ export interface DbGrowthFenceDecision {
   /** Allocated raw bytes remain above; only verified native MAIN-heap free
    * space can reduce aggregate accounting. All physical/table fences remain. */
   databaseAccounting?: NativeReusableHeapAccounting;
+  rawPayloadReuse?: RawPayloadReusableSpace;
 }
 
 export const OVERRIDE_ENV_FLAG = "SYNC_GROWTH_FENCE_OVERRIDE";
@@ -977,6 +979,30 @@ export async function evaluateDbGrowthFence(input?: {
     }), databaseAccounting };
   }
 
+  let rawPayloadReuse: RawPayloadReusableSpace | undefined;
+  if (env.SYNC_GROWTH_FENCE_RAW_REUSE_ENABLED === "true") {
+    rawPayloadReuse = await measureRawPayloadReusableSpace(
+      getDbWithTimeout(input?.queryTimeoutMs ?? DEFAULT_QUERY_TIMEOUT_MS), tableBytes as Record<string,number>);
+    const freshRaw = Math.max(databaseBytes,...Object.values(rawPayloadReuse).map(p => p.measuredDatabaseBytes ?? 0));
+    databaseBytes = freshRaw;
+    databaseAccounting = { ...databaseAccounting, rawDatabaseBytes: freshRaw,
+      accountedDatabaseBytes: freshRaw-databaseAccounting.reusableHeapBytes };
+    databaseAccounting = limitNativeReusableHeapCredit(mergeRawPayloadReusableAccounting(databaseAccounting,rawPayloadReuse),{
+      availableBytes:physical.availableBytes ?? -1,minimumFreeBytes:MINIMUM_VOLUME_FREE_BYTES,databaseBudgetBytes:databaseBudget,
+    });
+    for (const table of ["meta_raw_snapshots","shopify_raw_snapshots"] as const)
+      tableBytes[table] = rawPayloadReuse[table].effectiveBytes;
+    physical = evaluatePhysicalCapacity({ ...physicalInput,
+      snapshot: physicalInput.snapshot ? { ...physicalInput.snapshot,
+        ageSeconds: physicalInput.snapshot.ageSeconds === null ? null :
+          physicalInput.snapshot.ageSeconds + Math.max(0,Date.now()-physicalReadAt)/1000,
+      } : null, databaseBytes:databaseAccounting.accountedDatabaseBytes });
+    if (!physical.admitted) return { ...denied({
+      reason:PHYSICAL_FENCE_REASON[physical.reason as Exclude<PhysicalCapacityReason,"ok">],
+      budget:databaseBudget,databaseBytes,evaluatedAt,physical,errorMessage:physical.detail,
+    }),databaseAccounting,rawPayloadReuse };
+  }
+
   let offender: DbGrowthFenceDecision["offender"] = null;
   let reason: DbGrowthFenceReason = "ready";
   if (databaseAccounting.accountedDatabaseBytes >= databaseBudget) {
@@ -1016,6 +1042,7 @@ export async function evaluateDbGrowthFence(input?: {
         physical,
         stateHistoryEffective,
         databaseAccounting,
+        rawPayloadReuse,
       };
     }
     console.error("[db-growth-fence] refused new sync work", {
@@ -1038,6 +1065,7 @@ export async function evaluateDbGrowthFence(input?: {
       physical,
       stateHistoryEffective,
       databaseAccounting,
+      rawPayloadReuse,
     };
   }
 
@@ -1064,6 +1092,7 @@ export async function evaluateDbGrowthFence(input?: {
     physical,
     stateHistoryEffective,
     databaseAccounting,
+    rawPayloadReuse,
   };
 }
 
@@ -1178,6 +1207,8 @@ function buildFenceCacheKey(env: Readonly<Record<string, string | undefined>>) {
   const parts = [
     env.DATABASE_URL ?? "",
     env.SYNC_GROWTH_FENCE_DATABASE_BYTES ?? "",
+    env.SYNC_GROWTH_FENCE_REUSABLE_NATIVE_HEAP_ENABLED ?? "",
+    env.SYNC_GROWTH_FENCE_RAW_REUSE_ENABLED ?? "",
     env[OVERRIDE_ENV_FLAG] ?? "",
     env[OVERRIDE_REASON_ENV] ?? "",
     env[OVERRIDE_EXPIRES_ENV] ?? "",

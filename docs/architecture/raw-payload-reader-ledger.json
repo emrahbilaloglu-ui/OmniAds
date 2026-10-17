@@ -1,0 +1,56 @@
+{
+  "contract": "raw-payload-reader-ledger.v1",
+  "review": "D178: physical owner decoder only. Original identity, query scope, clocks, metric parsing and provider authority remain unchanged. SELECT-star candidates in replay are resolved at their final payload projection; metadata-only queries confer no payload-read authority. New literal readers or changed bytes require review. Dynamic writer/decoder SQL is separately closed in raw-payload-storage and raw-payload-compaction.",
+  "entries": [
+    {
+      "path": "lib/meta/ad-day-provider-zero-receipt.ts",
+      "sha256": "1bdd6fcd3fdbf0609382fb2fce8d2a5ec3c03a0ecb7cfe9361fcf69be84702d5",
+      "readers": 1
+    },
+    {
+      "path": "lib/meta/config-field-source-contract.ts",
+      "sha256": "7a61962e339e3f93931ed39210a874f198155f707c08b4ce63fc02b39c071bc8",
+      "readers": 2
+    },
+    {
+      "path": "lib/meta/raw-config-receipts.ts",
+      "sha256": "a9c481cdef24edf8a987493c8ca335fb4efd978a3c64c131a96ddcebbe60a4d8",
+      "readers": 2
+    },
+    {
+      "path": "lib/meta/warehouse.ts",
+      "sha256": "78c71879ce9f5a783fb8ae6a8cad66b7dff2454e41fcc9adc19d84d201e9a724",
+      "readers": 5
+    },
+    {
+      "path": "lib/shopify/warehouse.ts",
+      "sha256": "d0129cf9c7fc67686314003f07f5cd7029a5602cb9459b5f697fc5445fcf67bd",
+      "readers": 1
+    },
+    {
+      "path": "scripts/creative-decision-center/exact-pit-confirmatory-replay.ts",
+      "sha256": "a05dc655e17068d8edd795150f5fcf79eeb598a576fcdc916f7bde6a79156e06",
+      "readers": 3
+    },
+    {
+      "path": "scripts/creative-decision-center/h1-country-parent-challenger.ts",
+      "sha256": "8593d55a2c3a8a999306a6e66c758b64518c8df6ac74471943d67bb1261eccbc",
+      "readers": 1
+    },
+    {
+      "path": "scripts/creative-decision-center/raw-snapshot-pit-integrity.ts",
+      "sha256": "cd843377fbe2185367dd9f1cb95deb7d40522e556c2d9deafa0939961397735b",
+      "readers": 1
+    },
+    {
+      "path": "scripts/meta/creative-day-source-evidence-repair.ts",
+      "sha256": "3aace5535fd78e435562b18bae7c6c02978ba4f44437783e4fe9eff559be880a",
+      "readers": 1
+    },
+    {
+      "path": "scripts/meta/historical-source-slice-repair.ts",
+      "sha256": "3ede7548ce01e9652628cd7070e90574055966fb61625c411e62fd2c954a88f6",
+      "readers": 1
+    }
+  ]
+}

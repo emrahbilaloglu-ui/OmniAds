@@ -103,6 +103,8 @@ const RETENTION_CLAIM_PREDICATE =
 
 export const SYNC_RETENTION_EXECUTION_INDEX_SPECS: readonly SyncRetentionExecutionIndexSpec[] =
   [
+    btreeIndex("idx_meta_raw_snapshots_payload_ref", "meta_raw_snapshots", [ascendingKey("payload_ref_id")], "payload_ref_id IS NOT NULL"),
+    btreeIndex("idx_shopify_raw_snapshots_payload_ref", "shopify_raw_snapshots", [ascendingKey("payload_ref_id")], "payload_ref_id IS NOT NULL"),
     btreeIndex(
       "idx_provider_sync_jobs_retention_due",
       "provider_sync_jobs",

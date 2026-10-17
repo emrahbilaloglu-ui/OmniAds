@@ -332,7 +332,7 @@ export async function readDatedRawConfigReceipts(input: {
         )
     ), valid AS (
       SELECT observed.observation_id, observed.snapshot_id, observed.observed_at,
-             observed.request_context, snapshot.payload_json
+             observed.request_context, public.adsecute_meta_raw_payload(snapshot) AS payload_json
       FROM observed
       JOIN meta_raw_snapshots snapshot ON snapshot.id = observed.snapshot_id
         AND snapshot.business_id = $1
@@ -341,7 +341,7 @@ export async function readDatedRawConfigReceipts(input: {
         AND snapshot.entity_scope = $7
       WHERE observed.request_context->'pagination'->>'complete' = 'true'
         AND observed.request_context->'pagination'->>'termination' = 'natural_end'
-        AND jsonb_typeof(snapshot.payload_json) = 'array'
+        AND jsonb_typeof(public.adsecute_meta_raw_payload(snapshot)) = 'array'
         AND NULLIF(observed.request_context->>'fields', '') IS NOT NULL
     )
     SELECT entity.entity_json->>'id' AS entity_id,
@@ -482,7 +482,7 @@ export async function readDatedRawConfigReceipts(input: {
         )
     ), valid AS (
       SELECT observed.observation_id, observed.snapshot_id, observed.observed_at,
-             observed.request_context, snapshot.payload_json
+             observed.request_context, public.adsecute_meta_raw_payload(snapshot) AS payload_json
       FROM observed
       JOIN meta_raw_snapshots snapshot ON snapshot.id = observed.snapshot_id
         AND snapshot.business_id = $1

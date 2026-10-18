@@ -1,4 +1,5 @@
 import { runWithDbJitDisabled } from "@/lib/db-jit-scope";
+import { runWithMetaVerificationTimezoneObservations } from "@/lib/meta/verification-timezone-observation";
 import { reportingDayCount } from "@/lib/meta/reporting-period";
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
@@ -2778,5 +2779,7 @@ async function readMetaDecisionsWorkspace(request: NextRequest) {
 // Keep the existing bounded read graph in one lease-local scope. Other requests
 // retain their database setting; original queries and authority checks are unchanged.
 export async function GET(request: NextRequest) {
-  return runWithDbJitDisabled(() => readMetaDecisionsWorkspace(request));
+  return runWithDbJitDisabled(() =>
+    runWithMetaVerificationTimezoneObservations(() => readMetaDecisionsWorkspace(request)),
+  );
 }

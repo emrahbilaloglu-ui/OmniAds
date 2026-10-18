@@ -20,6 +20,7 @@ export async function buildColdSourceInventory(root=ROOT):Promise<Inventory>{
     "lib/sync/global-kill-switch.ts","lib/sync/raw-payload-storage.ts","lib/sync/raw-payload-compaction.ts",
     "lib/sync/raw-payload-reusable-space.ts","lib/sync/worker-health.ts",
     "lib/meta/status-types.ts","lib/meta/decision-pipeline-health.ts","lib/db-jit-scope.ts",
+    "lib/meta/verification-timezone-observation.ts",
     "app/api/meta/status/route.ts","app/api/meta/account-pulse/route.ts"];
   const files:Entry[]=[];
   for(const path of [...new Set<string>([...BATCH_FILES,...ADMISSION_FILES,...PINNED_LIBRARY_FILES,...own,...extra,

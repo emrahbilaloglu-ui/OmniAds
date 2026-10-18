@@ -2,6 +2,10 @@
 
 This is the first file future GPT/Codex/Claude chats should read before working on the Adsecute / OmniAds Creative page migration.
 
+For repeated identical physical-account timezone reads within one workspace GET,
+read [D195](DECISION_LOG.md#d195--share-only-identical-timezone-observations-within-one-workspace-request-2026-10-18).
+Date/surface publication proof and all writer admission remain independent.
+
 For the normal caller's five-minute timeout during longer native production,
 read [D194](DECISION_LOG.md#d194--keep-one-normal-cron-caller-and-retain-its-long-production-response-2026-10-18).
 This changes only the reviewed host invocation; native jobs and admission stay unchanged.

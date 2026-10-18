@@ -1,4 +1,5 @@
 import { isDbJitDisabledInScope } from "@/lib/db-jit-scope";
+import { observeMetaVerificationTimezones } from "@/lib/meta/verification-timezone-observation";
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
@@ -632,6 +633,8 @@ describe("GET /api/meta/decisions-workspace", () => {
 
   it("starts metric upstreams and live Ad inventory while the independent decision date is still being read", async () => {
     vi.stubEnv("META_DECISIONS_UPSTREAM_TRANSPORT", "in_process");
+    const timezoneSource = {};
+    const timezoneLoad = vi.fn(async () => [{ provider_account_id: "act_1", account_timezone: "UTC" }]);
     assignmentsMock.getProviderAccountAssignments.mockResolvedValue({
       id: "assignment_1", business_id: "biz_1", provider: "meta",
       account_ids: ["act_1"], created_at: "2026-07-01T00:00:00.000Z",
@@ -646,11 +649,15 @@ describe("GET /api/meta/decisions-workspace", () => {
     });
     upstreamRouteMock.accountPulseGet.mockImplementationOnce(async () => {
       expect(isDbJitDisabledInScope()).toBe(true);
+      await observeMetaVerificationTimezones(timezoneSource, "owned-same-query", timezoneLoad);
       await Promise.resolve();
       expect(isDbJitDisabledInScope()).toBe(true);
       return jsonResponse(metaPulse());
     });
-    upstreamRouteMock.laneClassificationGet.mockResolvedValue(jsonResponse(metaLanePayload()));
+    upstreamRouteMock.laneClassificationGet.mockImplementationOnce(async () => {
+      await observeMetaVerificationTimezones(timezoneSource, "owned-same-query", timezoneLoad);
+      return jsonResponse(metaLanePayload());
+    });
     let releaseDate!: (rows: Array<{ latest_as_of: string }>) => void;
     let dateStarted!: () => void;
     const pendingDate = new Promise<Array<{ latest_as_of: string }>>((resolve) => { releaseDate = resolve; });
@@ -684,6 +691,9 @@ describe("GET /api/meta/decisions-workspace", () => {
     }
     const response = await responsePending;
     expect(response.status).toBe(200);
+    expect(timezoneLoad).toHaveBeenCalledTimes(1);
+    await observeMetaVerificationTimezones(timezoneSource, "owned-same-query", timezoneLoad);
+    expect(timezoneLoad).toHaveBeenCalledTimes(2);
     expect(isDbJitDisabledInScope()).toBe(false);
     expect(readModelMock.readMetaDecisionsWorkspaceReadModel).toHaveBeenCalledWith(
       expect.objectContaining({ asOfDate: "2026-07-08" }),

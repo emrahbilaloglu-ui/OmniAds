@@ -95,6 +95,8 @@ const NATIVE_AD_DECISIONS_JOB_NAME = "engine_v3_native_ad_decisions_shadow_job";
 // budget. This is still bounded well below the workspace request deadline and
 // changes only read tolerance, never decision generation or authority.
 const NATIVE_DECISION_READ_TIMEOUT_MS = 20_000;
+// Query-plan bound only: larger/full inventories keep the batched currency read.
+const NATIVE_POINT_CURRENCY_MAX_AD_IDS = 120;
 
 /**
  * The one server-produced staleness token for this path. The UI must switch on
@@ -4581,7 +4583,9 @@ export async function readNativeSnapshotRows(input: {
     .sort();
   return db.query<MetaNativeDecisionSnapshotSourceRow>(
     `
-    /* ACCOUNT CURRENCY -- ONE PASS OVER THE ACCOUNT, NOT ONE SEEK PER AD.
+    /* ACCOUNT CURRENCY -- BATCH THE FULL ACCOUNT; POINT READ SMALL SUBSETS.
+       The recorded full-account cost below still requires the batch fallback.
+       A small explicit Ad list instead uses the bounded lateral join below.
 
        This reads exactly what the per-ad LATERAL read: the account_currency on
        the newest meta_ad_daily row for that ad at or before the served day.
@@ -4611,6 +4615,7 @@ export async function readNativeSnapshotRows(input: {
       WHERE daily.business_id = $1
         AND daily.provider_account_id = $2
         AND daily.date <= $4::date
+        AND NOT $11::boolean
         AND (NOT $9::boolean OR daily.ad_id = ANY($10::text[]))
       ORDER BY daily.ad_id, daily.date DESC, daily.updated_at DESC
     )
@@ -4696,7 +4701,8 @@ export async function readNativeSnapshotRows(input: {
         )
         ELSE NULL
       END AS ad_status,
-      ad_daily.account_currency AS currency,
+      CASE WHEN $11::boolean THEN point_currency.account_currency
+        ELSE ad_daily.account_currency END AS currency,
       COALESCE(
         media.table_thumbnail_url, media.thumbnail_url, media.card_preview_url,
         media.poster_url, media.image_url, media.preview_url,
@@ -4925,6 +4931,21 @@ export async function readNativeSnapshotRows(input: {
       LIMIT 1
     ) media ON TRUE
     LEFT JOIN ad_daily ON ad_daily.ad_id = snapshot.ad_id
+    /* bounded-native-ad-currency: the existing (ad_id, date DESC) index can
+       return the latest day directly for a small exact-Ad projection. The
+       full account keeps the original batch to avoid thousands of seeks.
+       Same owner/account/cutoff/order, including a NULL latest currency. */
+    LEFT JOIN LATERAL (
+      SELECT daily.account_currency
+      FROM meta_ad_daily daily
+      WHERE $11::boolean
+        AND daily.business_id = $1
+        AND daily.provider_account_id = $2
+        AND daily.ad_id = snapshot.ad_id
+        AND daily.date <= $4::date
+      ORDER BY daily.date DESC, daily.updated_at DESC
+      LIMIT 1
+    ) point_currency ON TRUE
     LEFT JOIN LATERAL (
       SELECT dimension.*
       FROM meta_adset_dimensions dimension
@@ -5006,6 +5027,7 @@ export async function readNativeSnapshotRows(input: {
       creativeIds,
       input.adIds !== undefined,
       adIds,
+      input.adIds !== undefined && adIds.length <= NATIVE_POINT_CURRENCY_MAX_AD_IDS,
     ],
   );
 }

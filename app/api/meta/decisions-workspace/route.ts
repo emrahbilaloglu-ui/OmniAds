@@ -2006,6 +2006,27 @@ async function readMetaDecisionsWorkspace(request: NextRequest) {
     const upstreams = await upstreamsPromise;
     if (!upstreams.ok) throw upstreams.error;
     const [pulse, lanes] = upstreams.value;
+    // Independent account-coverage context. Start with the authorised upstream
+    // business while the exact decision read is pending; still await it below.
+    const assignedAccountStatesPromise = readMetaAssignedAccountStates(
+      pulse.businessId,
+    )
+      .then((states) =>
+        states.map((state) => ({
+          providerAccountId: state.providerAccountId,
+          accountName: state.accountName,
+          selectionState: state.selectionState,
+          accountCurrency: state.accountCurrency,
+          accountTimezone: state.accountTimezone,
+          latestFactDate: state.latestFactDate,
+          spend14d: state.spend14d,
+          latestDecisionAsOf: state.latestDecisionAsOf,
+          latestDecisionRows: state.latestDecisionRows,
+          latestDecisionAuthorizedRows: state.latestDecisionAuthorizedRows,
+          policy: describeAccountStatePolicy(state),
+        })),
+      )
+      .catch(() => null);
     const upstreamsCompletedAt = performance.now();
     const trackingBlocked = isTrackingBlocked(pulse);
     const scopedRecommendations = [
@@ -2520,25 +2541,7 @@ async function readMetaDecisionsWorkspace(request: NextRequest) {
     // D078 R4: server-owned account-coverage evidence. Fail-closed: an
     // unreadable states read serves null (rendered unavailable), never an
     // invented single-account list.
-    const assignedAccountStates = await readMetaAssignedAccountStates(
-      pulse.businessId,
-    )
-      .then((states) =>
-        states.map((state) => ({
-          providerAccountId: state.providerAccountId,
-          accountName: state.accountName,
-          selectionState: state.selectionState,
-          accountCurrency: state.accountCurrency,
-          accountTimezone: state.accountTimezone,
-          latestFactDate: state.latestFactDate,
-          spend14d: state.spend14d,
-          latestDecisionAsOf: state.latestDecisionAsOf,
-          latestDecisionRows: state.latestDecisionRows,
-          latestDecisionAuthorizedRows: state.latestDecisionAuthorizedRows,
-          policy: describeAccountStatePolicy(state),
-        })),
-      )
-      .catch(() => null);
+    const assignedAccountStates = await assignedAccountStatesPromise;
 
     const payload: MetaDecisionsWorkspacePayload & {
       decisionReadModel: MetaDecisionsWorkspaceReadModel;

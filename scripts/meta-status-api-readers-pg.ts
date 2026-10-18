@@ -5,6 +5,8 @@ import type { Client } from "pg";
 import { getDb, runPinnedDbTransaction } from "../lib/db";
 import { getMetaAdSetDailyCoverage, getMetaBreakdownDailyCoverageByEndpoint } from "../lib/meta/warehouse";
 import { FENCED_TABLES, PHYSICAL_TELEMETRY_SOURCE } from "../lib/sync/db-growth-fence";
+import { readNativeSnapshotRows } from "../lib/meta/decisions-workspace-read-model";
+import type { DbClient } from "../lib/db";
 
 /** Execute the actual route SQL, not a second implementation of its rules. */
 function routeSql(file: string, functionName: string) {
@@ -193,6 +195,8 @@ export async function verifyMetaStatusApiReadersPg(client: Client) {
     assert(anomalyNodes.filter((node) => node["Relation Name"] === "meta_decision_snapshots_daily")
       .every((node) => Number(node["Actual Rows"]) <= 4));
 
+    await verifyNativeCurrencyProjectionPg(db, business, foreign);
+
     await db.query(`INSERT INTO meta_adset_daily VALUES
       ($1,'act-a','2026-01-01','2026-01-10'),($1,'act-a','2026-01-01','2026-01-11'),
       ($1,'act-b','2026-01-03','2026-01-12'),($2,'act-a','2026-01-02','2026-02-01')`, [business, foreign]);
@@ -310,4 +314,69 @@ export async function verifyMetaStatusApiReadersPg(client: Client) {
       "missing physical telemetry must remain missing in every metadata row");
   } });
   console.log("[meta-status-api-readers] PASS actual SQL: native/legacy competing-date bounds, ties, null/absent native dates, dual ownership, historical account ambiguity, ordered metadata index/backfills, indexed anomaly kind with null legacy/window/scope/owner parity, exact daily coverage, point breakdown witnesses/checkpoints/legacy raw, 761-day bounds and partition semantics");
+}
+
+
+/** Execute the actual currency clauses from the exported native reader. The
+ * remaining 69-column native result is independently byte-compared live. */
+async function verifyNativeCurrencyProjectionPg(db: Pick<DbClient, "query">, business: string, foreign: string) {
+  const capture = async (adIds?: string[]) => {
+    let text = "";
+    let params: unknown[] = [];
+    await readNativeSnapshotRows({ businessId: business, providerAccountId: "act-a",
+      generation: { jobRunId: "d1900000-0000-4000-8000-000000000001", asOfDate: "2026-01-15",
+        providerAccountRefId: "d1900000-0000-4000-8000-000000000002", manifestHash: "a".repeat(64), expectedAdCount: 145 },
+      adIds,
+    }, { query: async (sql, values) => { text = sql; params = [...(values ?? [])]; return []; } });
+    assert(text.includes("bounded-native-ad-currency")); assert.equal(params.length, 11);
+    return { text, params };
+  };
+  const { text } = await capture(["ad-0"]);
+  const start = text.indexOf("WITH ad_daily AS MATERIALIZED (");
+  const end = text.indexOf("\n    SELECT\n      snapshot.id::text", start);
+  assert(start >= 0 && end > start);
+  const batch = text.slice(start, end);
+  const expression = text.match(/CASE WHEN \$11::boolean THEN point_currency.account_currency[\s\S]*?END AS currency/)?.[0];
+  const join = text.match(/    LEFT JOIN ad_daily ON ad_daily.ad_id = snapshot.ad_id[\s\S]*?\) point_currency ON TRUE/)?.[0];
+  assert(expression && join);
+  const oldBatch = batch.replace("\n        AND NOT $11::boolean", ""); assert.notEqual(oldBatch, batch);
+  const shape = ", bind_shape AS (SELECT $3::uuid,$5::uuid,$6::text,$7::boolean,$8::text[],$11::boolean)";
+  const suffix = (projection: string, joins: string) => ` SELECT snapshot.ad_id, ${projection}
+    FROM native_currency_owned_snapshots snapshot ${joins}
+    WHERE (NOT $9::boolean OR snapshot.ad_id = ANY($10::text[])) ORDER BY snapshot.ad_id`;
+  const actual = batch + shape + suffix(expression, join);
+  const original = oldBatch + shape + suffix("ad_daily.account_currency AS currency", "LEFT JOIN ad_daily ON ad_daily.ad_id = snapshot.ad_id");
+  await db.query(`CREATE TEMP TABLE meta_ad_daily(business_id text,provider_account_id text,ad_id text,date date,updated_at timestamptz,account_currency text,PRIMARY KEY(business_id,provider_account_id,date,ad_id)) ON COMMIT DROP;
+    CREATE INDEX idx_meta_ad_daily_ad ON meta_ad_daily(ad_id,date DESC);
+    CREATE TEMP TABLE native_currency_owned_snapshots(ad_id text PRIMARY KEY) ON COMMIT DROP;`);
+  await db.query("INSERT INTO native_currency_owned_snapshots SELECT 'ad-'||g FROM generate_series(0,139) g");
+  await db.query("INSERT INTO native_currency_owned_snapshots VALUES ('null-latest'),('future'),('missing'),('shared-owner'),('other-account')");
+  await db.query(`INSERT INTO meta_ad_daily SELECT $1,'act-a','ad-'||g,'2026-01-01'::date+d,'2026-01-15','USD'
+      FROM generate_series(0,139) g CROSS JOIN generate_series(0,13) d`, [business]);
+  await db.query(`INSERT INTO meta_ad_daily VALUES
+    ($1,'act-a','null-latest','2026-01-12','2026-01-15','USD'),($1,'act-a','null-latest','2026-01-14','2026-01-15',NULL),
+    ($1,'act-a','future','2026-01-10','2026-01-15','EUR'),($1,'act-a','future','2026-01-16','2026-01-17','GBP'),
+    ($1,'act-a','shared-owner','2026-01-12','2026-01-15','USD'),($2,'act-a','shared-owner','2026-01-14','2026-01-15','GBP'),
+    ($1,'act-a','other-account','2026-01-11','2026-01-15','CAD'),($1,'act-b','other-account','2026-01-14','2026-01-15','AUD');`, [business, foreign]);
+  await db.query("INSERT INTO meta_ad_daily SELECT $1,'act-a','decoy-'||g,'2026-01-14','2026-01-15','JPY' FROM generate_series(1,20000) g", [foreign]);
+  await db.query("ANALYZE meta_ad_daily");
+  for (const ids of [undefined, [], ["missing"], ["null-latest", "future", "shared-owner", "other-account"],
+    Array.from({ length: 120 }, (_, n) => `ad-${n}`), Array.from({ length: 121 }, (_, n) => `ad-${n}`)]) {
+    const { params } = await capture(ids);
+    assert.equal(params[10], ids !== undefined && ids.length <= 120);
+    assert.deepEqual(await db.query(actual, params), await db.query(original, params));
+  }
+  const all = await db.query<{ad_id: string;currency: string | null}>(actual, (await capture()).params);
+  assert.equal(all.length, 145);
+  const currencies = Object.fromEntries(all.map(row => [row.ad_id, row.currency]));
+  assert.deepEqual([currencies["null-latest"], currencies.future, currencies.missing, currencies["shared-owner"], currencies["other-account"]],
+    [null, "EUR", null, "USD", "CAD"]);
+  const [point] = await db.query("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON, TIMING OFF) " + actual,
+    (await capture(Array.from({ length: 120 }, (_, n) => `ad-${n}`))).params);
+  const nodes: Record<string, unknown>[] = [];
+  const walk = (node: Record<string, unknown>) => { nodes.push(node); for (const child of (node.Plans ?? []) as Record<string, unknown>[]) walk(child); };
+  walk(point!["QUERY PLAN"][0].Plan);
+  assert(nodes.some(node => node["Index Name"] === "idx_meta_ad_daily_ad" && /ad_id/.test(String(node["Index Cond"])) && /date/.test(String(node["Index Cond"]))));
+  assert(nodes.filter(node => node.Alias === "ad_daily").every(node => Number(node["Actual Rows"]) === 0));
+  console.log("[native-currency-owned] PASS actual source clauses: empty/one/120/121/full, missing/null latest, cutoff, dual-owner/account and20kdecoy parity; bounded existing ad/date index");
 }

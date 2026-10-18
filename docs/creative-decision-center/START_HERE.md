@@ -2,6 +2,10 @@
 
 This is the first file future GPT/Codex/Claude chats should read before working on the Adsecute / OmniAds Creative page migration.
 
+For bounded small native currency reads and parallel account-coverage context,
+read [D190](DECISION_LOG.md#d190--bound-small-native-currency-reads-and-overlap-assigned-account-context-2026-10-18).
+The D189 first workspace latency failure remains retained.
+
 For the separately reviewed host installer inventory pin and its failed transition,
 read [D189](DECISION_LOG.md#d189--pin-the-separately-reviewed-host-installer-to-the-actual-runtime-inventory-2026-10-18).
 A healthy image does not prove source pin compatibility.

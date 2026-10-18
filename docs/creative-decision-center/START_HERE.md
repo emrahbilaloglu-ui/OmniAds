@@ -2,6 +2,10 @@
 
 This is the first file future GPT/Codex/Claude chats should read before working on the Adsecute / OmniAds Creative page migration.
 
+For the final tenant-absence probe's visibility-dependent plan refusal, read
+[D191](DECISION_LOG.md#d191--keep-final-tenant-absence-probes-on-constrained-owner-ranges-2026-10-18).
+The strict owner-plan guard and atomic erasure rollback remain unchanged.
+
 For bounded small native currency reads and parallel account-coverage context,
 read [D190](DECISION_LOG.md#d190--bound-small-native-currency-reads-and-overlap-assigned-account-context-2026-10-18).
 The D189 first workspace latency failure remains retained.

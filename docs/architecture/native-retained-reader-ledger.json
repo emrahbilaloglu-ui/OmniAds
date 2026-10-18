@@ -47,8 +47,8 @@
     {
       "path": "lib/business-deletion.ts",
       "role": "storage-and-pin-reader",
-      "sha256": "f89f14d2d27e03533fb577eff379e7a6e05f9975fa9089485ddf503a3b5ebe04",
-      "retention": "D174 accepts only the exact validated typed tenant-erasure checkpoint in addition to legacy D169; final shared-input GC, global reference proof, writer exclusion, original full-row hashes, all FKs/guards and atomic rollback remain. No new ordinary pruning or provider authority. D175 adds the independently validated cold replica/private-copy/temporary-session/plaintext-restore absence proof to the same hidden-business offboarding barrier. Lifetime replica-required remains on after disabling new archival. No ordinary age pruning or provider authority."
+      "sha256": "00bcdc3884a6834c8321a8626b6df07ecdfc00343a5bc8e4c72fbf795d797f35",
+      "retention": "D174 accepts only the exact validated typed tenant-erasure checkpoint in addition to legacy D169; final shared-input GC, global reference proof, writer exclusion, original full-row hashes, all FKs/guards and atomic rollback remain. No new ordinary pruning or provider authority. D175 adds the independently validated cold replica/private-copy/temporary-session/plaintext-restore absence proof to the same hidden-business offboarding barrier. Lifetime replica-required remains on after disabling new archival. No ordinary age pruning or provider authority. D191 changes only the indexed non-episode final absence probe to an EXPLAIN-guarded physical-identity owner cursor with FETCH1. The strict owner-plan guard, predicates, bindings, presence refusal, atomic rollback, archive erasure and authority remain unchanged; no production maintenance or new indexes."
     },
     {
       "path": "lib/creative-decision-engine/ad-backtest-store.ts",
@@ -507,5 +507,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "7f540f3d7bec12c35827002565b23f421adbd231c9f84dbaceead441cd73f3ae"
+  "sourceInventorySha256": "42b7e2363aeb797913c9df21688fce553e309953828aafa87665818b1189efc1"
 }

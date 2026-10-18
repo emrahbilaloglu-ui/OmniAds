@@ -383,8 +383,8 @@
     },
     {
       "path": "lib/sync/db-growth-fence.ts",
-      "sha256": "de1d87c962d113751d881407f630e0152e7faf0b6edcc65ddc846cbb8edac643",
-      "bytes": 59848
+      "sha256": "0190c8c2ce38f798a0dcecc12de3f11884756682d5b530153b159741a75c367f",
+      "bytes": 64651
     },
     {
       "path": "lib/sync/global-kill-switch.ts",
@@ -837,5 +837,5 @@
       "bytes": 4644
     }
   ],
-  "sourceInventorySha256": "6ef074e7783c20a424744cf8c3eda7526532a5ad6d4fca292fb5cfe26202c5c3"
+  "sourceInventorySha256": "17249820778ce96f0a437f60b3e4750667c3b0e32959676096e5ade6dfff9a91"
 }

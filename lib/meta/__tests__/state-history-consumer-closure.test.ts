@@ -535,7 +535,7 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
   // slice (installMetaTableOverBudget() fixture + its 4 dependent tests)
   // added 7 more literal references, 11 -> 18. All fixture/assertion
   // strings; no new query. See D075_STATE_HISTORY_CONSUMER_SWEEP addendum.
-  { file: "lib/sync/db-growth-fence.test.ts", category: "test", count: 18 },
+  { file: "lib/sync/db-growth-fence.test.ts", category: "test", count: 19 },
   {
     file: "lib/sync/staged-worker-predicate.test.ts",
     category: "test",

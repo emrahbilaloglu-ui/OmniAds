@@ -675,7 +675,7 @@ export async function evaluateDbGrowthFence(input?: {
   nowMs?: number;
   queryTimeoutMs?: number;
 }): Promise<DbGrowthFenceDecision> {
-  return evaluateDbGrowthFenceWithProofOrdering(input, false);
+  return publishFullFenceProofForReaders(input);
 }
 
 /** One evaluator and policy. Only status observations may overlap independent
@@ -1226,6 +1226,96 @@ type FenceReadObservation = {
   decision: DbGrowthFenceDecision;
 };
 
+type FullFenceProof = { key: string | null; decision: DbGrowthFenceDecision };
+type PendingFullFenceProof = { key: string; startedAt: number; promise: Promise<FullFenceProof> };
+
+function fullFenceProofReadStore() {
+  return globalThis as typeof globalThis & {
+    __omniadsFullFenceReadReady?: FenceReadObservation;
+    __omniadsFullFenceReadPending?: PendingFullFenceProof;
+    __omniadsFullFenceReadLast?: { key: string; measuredAt: number };
+  };
+}
+
+function observationKey(env: Readonly<Record<string, string | undefined>>, timeoutMs?: number) {
+  return `${buildFenceCacheKey(env)}\u001f${timeoutMs ?? DEFAULT_QUERY_TIMEOUT_MS}`;
+}
+
+function normalReadProofExpiry(decision: DbGrowthFenceDecision, nowMs: number) {
+  const measuredAt = Date.parse(decision.evaluatedAt);
+  const physical = decision.physical;
+  const physicalExpiry = physical?.sampledAt
+    ? Date.parse(physical.sampledAt) + physical.maxAgeSeconds * 1000 : Infinity;
+  const expiresAt = Math.min(measuredAt + READ_OBSERVATION_TTL_MS, physicalExpiry);
+  return decision.allowed && decision.reason === "ready" && !decision.overridden &&
+    Number.isFinite(measuredAt) && measuredAt <= nowMs && expiresAt > nowMs ? expiresAt : null;
+}
+
+/** Publish only: every full evaluation still starts its own original sequential
+ * proof. Neither another full proof nor a read observation can admit a writer. */
+async function publishFullFenceProofForReaders(input: Parameters<typeof evaluateDbGrowthFence>[0]) {
+  const env = input?.env ?? process.env;
+  const key = observationKey(env, input?.queryTimeoutMs);
+  const store = fullFenceProofReadStore();
+  const pending: PendingFullFenceProof = {
+    key, startedAt: input?.nowMs ?? Date.now(),
+    promise: evaluateDbGrowthFenceWithProofOrdering(input, false).then(decision => ({
+      decision, key: observationKey(env, input?.queryTimeoutMs) === key ? key : null,
+    })),
+  };
+  store.__omniadsFullFenceReadPending = pending;
+  try {
+    const proof = await pending.promise;
+    const observedAt = Date.now();
+    const measuredAt = Date.parse(proof.decision.evaluatedAt);
+    const expiresAt = normalReadProofExpiry(proof.decision, observedAt);
+    const last = store.__omniadsFullFenceReadLast;
+    if (proof.key === key && Number.isFinite(measuredAt) && measuredAt <= observedAt &&
+        (!last || last.key !== key || last.measuredAt <= measuredAt)) {
+      store.__omniadsFullFenceReadLast = { key, measuredAt };
+      if (expiresAt !== null) store.__omniadsFullFenceReadReady = { key, expiresAt, decision: proof.decision };
+      else {
+        if (store.__omniadsFullFenceReadReady?.key === key) store.__omniadsFullFenceReadReady = undefined;
+        const reads = fenceReadObservationStore();
+        if (reads.__omniadsGrowthFenceReadObservation?.key === key &&
+            Date.parse(reads.__omniadsGrowthFenceReadObservation.decision.evaluatedAt) <= measuredAt) {
+          reads.__omniadsGrowthFenceReadObservation = undefined;
+        }
+      }
+    }
+    return proof.decision;
+  } finally {
+    if (store.__omniadsFullFenceReadPending === pending) store.__omniadsFullFenceReadPending = undefined;
+  }
+}
+
+async function fullOrIndependentReadProof(input: {
+  env: Readonly<Record<string, string | undefined>>; nowMs: number; queryTimeoutMs?: number;
+}, key: string) {
+  const store = fullFenceProofReadStore();
+  const ready = store.__omniadsFullFenceReadReady;
+  if (ready?.key === key && normalReadProofExpiry(ready.decision, input.nowMs) !== null) return ready.decision;
+  const pending = store.__omniadsFullFenceReadPending;
+  if (pending?.key === key && pending.startedAt <= input.nowMs &&
+      input.nowMs - pending.startedAt < READ_OBSERVATION_TTL_MS) {
+    const waitedAt = Date.now();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const proof = await Promise.race([
+        pending.promise,
+        new Promise<never>((_, reject) => { timer = setTimeout(
+          () => reject(new Error("capacity_observation_full_proof_wait_expired")),
+          READ_OBSERVATION_TTL_MS - (input.nowMs - pending.startedAt),
+        ); }),
+      ]);
+      const observedNow = input.nowMs + Math.max(0, Date.now() - waitedAt);
+      if (proof.key === key && Date.parse(proof.decision.evaluatedAt) <= input.nowMs &&
+          normalReadProofExpiry(proof.decision, observedNow) !== null) return proof.decision;
+    } finally { if (timer !== undefined) clearTimeout(timer); }
+  }
+  return evaluateDbGrowthFenceWithProofOrdering(input, true);
+}
+
 function fenceReadObservationStore() {
   return globalThis as typeof globalThis & {
     __omniadsGrowthFenceReadObservation?: FenceReadObservation;
@@ -1241,12 +1331,16 @@ export function resetDbGrowthFenceReadObservationCache() {
   const store = fenceReadObservationStore();
   store.__omniadsGrowthFenceReadObservation = undefined;
   store.__omniadsGrowthFenceReadPending = undefined;
+  const full = fullFenceProofReadStore();
+  full.__omniadsFullFenceReadReady = undefined;
+  full.__omniadsFullFenceReadPending = undefined;
+  full.__omniadsFullFenceReadLast = undefined;
 }
 
-/** Status projection only. Coalesce the expensive map proof across concurrent
- * read surfaces, retaining its original clock. This cache is separate from
- * every write/admission boundary. Refusals, failed proofs and overrides are
- * never retained, and the physical receipt's own expiry also bounds reuse. */
+/** Status projection only. Coalesce concurrent readers and observe identical
+ * fresh full proofs one-way, retaining their original clock. Full/write callers
+ * never consume this cache. Refusals, failed proofs and overrides are not
+ * retained; physical receipt expiry independently bounds every reused proof. */
 export async function readDbGrowthFenceObservation(input?: {
   env?: Readonly<Record<string, string | undefined>>;
   nowMs?: number;
@@ -1254,7 +1348,7 @@ export async function readDbGrowthFenceObservation(input?: {
 }): Promise<DbGrowthFenceDecision> {
   const nowMs = input?.nowMs ?? Date.now();
   const env = { ...(input?.env ?? process.env) };
-  const key = `${buildFenceCacheKey(env)}\u001f${input?.queryTimeoutMs ?? DEFAULT_QUERY_TIMEOUT_MS}`;
+  const key = observationKey(env, input?.queryTimeoutMs);
   const store = fenceReadObservationStore();
   const cached = store.__omniadsGrowthFenceReadObservation;
   if (cached?.key === key && cached.expiresAt > nowMs &&
@@ -1263,14 +1357,16 @@ export async function readDbGrowthFenceObservation(input?: {
   if (pending?.key === key && pending.startedAt <= nowMs &&
       nowMs - pending.startedAt < READ_OBSERVATION_TTL_MS) return pending.promise;
 
-  const promise = evaluateDbGrowthFenceWithProofOrdering({ ...input, env, nowMs }, true).then((decision) => {
+  const promise = fullOrIndependentReadProof({ ...input, env, nowMs }, key).then((decision) => {
     const measuredAt = Date.parse(decision.evaluatedAt);
     const physical = decision.physical;
     const physicalExpiry = physical?.sampledAt
       ? Date.parse(physical.sampledAt) + physical.maxAgeSeconds * 1000
       : Infinity;
     const expiresAt = Math.min(measuredAt + READ_OBSERVATION_TTL_MS, physicalExpiry);
-    if (decision.allowed && decision.reason === "ready" && !decision.overridden &&
+    const latestFull = fullFenceProofReadStore().__omniadsFullFenceReadLast;
+    const olderThanKnownFull = latestFull?.key === key && latestFull.measuredAt > measuredAt;
+    if (decision.allowed && decision.reason === "ready" && !decision.overridden && !olderThanKnownFull &&
         Number.isFinite(measuredAt) && measuredAt <= nowMs && expiresAt > nowMs) {
       store.__omniadsGrowthFenceReadObservation = { key, expiresAt, decision };
     } else if (store.__omniadsGrowthFenceReadObservation?.key === key) {

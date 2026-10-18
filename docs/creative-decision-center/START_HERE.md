@@ -2,6 +2,10 @@
 
 This is the first file future GPT/Codex/Claude chats should read before working on the Adsecute / OmniAds Creative page migration.
 
+For foreground read fairness during the natural cron pass and evidence timing,
+read [D192](DECISION_LOG.md#d192--bound-cross-business-cron-work-and-measure-evidence-read-phases-2026-10-18).
+The earlier second evidence request took51.5s; its exact cause remains unproven.
+
 For the final tenant-absence probe's visibility-dependent plan refusal, read
 [D191](DECISION_LOG.md#d191--keep-final-tenant-absence-probes-on-constrained-owner-ranges-2026-10-18).
 The strict owner-plan guard and atomic erasure rollback remain unchanged.

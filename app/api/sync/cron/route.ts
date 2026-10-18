@@ -401,90 +401,97 @@ export async function POST(request: NextRequest) {
   }
 
   const cronStartedAt = new Date();
-  const results = await Promise.allSettled(
-    businesses.map(async (business) => {
-      const [gads, ga4, sc, metaScheduled, shopify, klaviyo] =
-        await Promise.allSettled([
-          enqueueGoogleAdsScheduledWork(business.id),
-          syncGA4Reports(business.id),
-          syncSearchConsoleReports(business.id),
-          enqueueMetaScheduledWork(business.id),
-          shopifySyncEnabled()
-            ? syncShopifyCommerceReports(business.id)
-            : Promise.resolve({ skipped: true, reason: "disabled" }),
-          // Klaviyo rides the same `source_ingest` lane as GA4 and Search
-          // Console, refuses itself when that lane is off, and skips silently
-          // for every business that has not connected Klaviyo.
-          syncKlaviyoFlowMetrics(business.id),
-        ]);
+  // The same web process serves foreground reads. Do not queue every
+  // business's six independent lanes against its finite connection pool.
+  // Keep parallel lanes within one business, settle its receipt/freshness,
+  // then advance. A failed business still cannot prevent the next one.
+  const syncBusiness = async (business: (typeof businesses)[number]) => {
+    const [gads, ga4, sc, metaScheduled, shopify, klaviyo] =
+      await Promise.allSettled([
+        enqueueGoogleAdsScheduledWork(business.id),
+        syncGA4Reports(business.id),
+        syncSearchConsoleReports(business.id),
+        enqueueMetaScheduledWork(business.id),
+        shopifySyncEnabled()
+          ? syncShopifyCommerceReports(business.id)
+          : Promise.resolve({ skipped: true, reason: "disabled" }),
+        // Klaviyo rides the same `source_ingest` lane as GA4 and Search
+        // Console, refuses itself when that lane is off, and skips silently
+        // for every business that has not connected Klaviyo.
+        syncKlaviyoFlowMetrics(business.id),
+      ]);
 
-      // Read AFTER the enqueue so the receipt describes the state the tick
-      // leaves behind. One bulk read per business per pass — never one per
-      // scope and never one per date.
-      const googleAdsFreshness = await readGoogleAdsCronFreshness(
-        business.id,
-        cronStartedAt,
-      );
+    // Read AFTER the enqueue so the receipt describes the state the tick
+    // leaves behind. One bulk read per business per pass — never one per
+    // scope and never one per date.
+    const googleAdsFreshness = await readGoogleAdsCronFreshness(
+      business.id,
+      cronStartedAt,
+    );
 
-      // Classify each lane while the rejection is still an OBJECT. Stringifying
-      // first is lossy in exactly the wrong direction: a capacity refusal, a
-      // disabled lane and an unreadable authority all become an ordinary
-      // message and the route answers 200.
-      const lanes = {
-        googleAds: describeLaneOutcome(gads),
-        ga4: describeLaneOutcome(ga4),
-        searchConsole: describeLaneOutcome(sc),
-        meta: describeLaneOutcome(metaScheduled),
-        shopify: describeLaneOutcome(shopify),
-        klaviyo: describeLaneOutcome(klaviyo),
-      };
-      return {
-        businessId: business.id,
-        businessName: business.name,
-        googleAds: lanes.googleAds.value,
-        ga4: lanes.ga4.value,
-        searchConsole: lanes.searchConsole.value,
-        meta: lanes.meta.value,
-        shopify: lanes.shopify.value,
-        klaviyo: lanes.klaviyo.value,
-        // The scheduler publishes the same verdict the UI shows, so a worker
-        // can never stop for one reason while the admin page claims another.
-        googleAdsFreshness,
-        googleAdsDueNowDays: googleAdsFreshnessDueNowDays(googleAdsFreshness),
-        safetyRefusals: Object.entries(lanes).flatMap(([lane, outcome]) =>
-          outcome.refusal ? [{ lane, businessId: business.id, ...outcome.refusal }] : [],
-        ),
-        // Ordinary lane errors are deliberately not safety refusals, but they
-        // are still failures. Without this the receipt reported `synced: 13`
-        // when every lane of every business had thrown.
-        laneFailures: Object.entries(lanes).flatMap(([lane, outcome]) => {
-          const value = outcome.value as
-            | { error?: unknown; failed?: unknown; attempted?: unknown }
-            | null;
-          if (!value || typeof value !== "object") return [];
-          if ("error" in value && value.error) {
-            return [{ lane, message: String(value.error) }];
-          }
-          // A lane that RESOLVED while failing every window is still a failure.
-          // GA4 and Search Console catch their per-window errors internally and
-          // return `{ attempted, succeeded, failed }` with no `error` key, so
-          // keying only off `error` reported ok:true and full success while both
-          // lanes had failed every window for every business.
-          if (typeof value.failed === "number" && value.failed > 0) {
-            const attempted =
-              typeof value.attempted === "number" ? value.attempted : null;
-            return [
-              {
-                lane,
-                message: `${value.failed}${attempted === null ? "" : ` of ${attempted}`} window(s) failed`,
-              },
-            ];
-          }
-          return [];
-        }),
-      };
-    }),
-  );
+    // Classify each lane while the rejection is still an OBJECT. Stringifying
+    // first is lossy in exactly the wrong direction: a capacity refusal, a
+    // disabled lane and an unreadable authority all become an ordinary
+    // message and the route answers 200.
+    const lanes = {
+      googleAds: describeLaneOutcome(gads),
+      ga4: describeLaneOutcome(ga4),
+      searchConsole: describeLaneOutcome(sc),
+      meta: describeLaneOutcome(metaScheduled),
+      shopify: describeLaneOutcome(shopify),
+      klaviyo: describeLaneOutcome(klaviyo),
+    };
+    return {
+      businessId: business.id,
+      businessName: business.name,
+      googleAds: lanes.googleAds.value,
+      ga4: lanes.ga4.value,
+      searchConsole: lanes.searchConsole.value,
+      meta: lanes.meta.value,
+      shopify: lanes.shopify.value,
+      klaviyo: lanes.klaviyo.value,
+      // The scheduler publishes the same verdict the UI shows, so a worker
+      // can never stop for one reason while the admin page claims another.
+      googleAdsFreshness,
+      googleAdsDueNowDays: googleAdsFreshnessDueNowDays(googleAdsFreshness),
+      safetyRefusals: Object.entries(lanes).flatMap(([lane, outcome]) =>
+        outcome.refusal ? [{ lane, businessId: business.id, ...outcome.refusal }] : [],
+      ),
+      // Ordinary lane errors are deliberately not safety refusals, but they
+      // are still failures. Without this the receipt reported `synced: 13`
+      // when every lane of every business had thrown.
+      laneFailures: Object.entries(lanes).flatMap(([lane, outcome]) => {
+        const value = outcome.value as
+          | { error?: unknown; failed?: unknown; attempted?: unknown }
+          | null;
+        if (!value || typeof value !== "object") return [];
+        if ("error" in value && value.error) {
+          return [{ lane, message: String(value.error) }];
+        }
+        // A lane that RESOLVED while failing every window is still a failure.
+        // GA4 and Search Console catch their per-window errors internally and
+        // return `{ attempted, succeeded, failed }` with no `error` key, so
+        // keying only off `error` reported ok:true and full success while both
+        // lanes had failed every window for every business.
+        if (typeof value.failed === "number" && value.failed > 0) {
+          const attempted =
+            typeof value.attempted === "number" ? value.attempted : null;
+          return [
+            {
+              lane,
+              message: `${value.failed}${attempted === null ? "" : ` of ${attempted}`} window(s) failed`,
+            },
+          ];
+        }
+        return [];
+      }),
+    };
+  };
+  const results: PromiseSettledResult<Awaited<ReturnType<typeof syncBusiness>>>[] = [];
+  for (const business of businesses) {
+    const [result] = await Promise.allSettled([syncBusiness(business)]);
+    results.push(result!);
+  }
 
   const summary = results.map((r) =>
     r.status === "fulfilled"

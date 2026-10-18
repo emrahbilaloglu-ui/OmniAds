@@ -1,5 +1,5 @@
 {
-  "manifestHash": "2c4bb1e2c7b645ba13921f6b04ced364add4a4af9eb26235b5254b8f92c1bb73",
+  "manifestHash": "6ccbba0fdd2dfd3257e16b4427a2b729e88bd54b3d7d8304417383202b53f2ad",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -928,7 +928,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "de134246007e37df6221834e3c45919e113fc3712e8dbcb05acf88f08bdbfaf3"
+      "sha256": "010287ea4e41feff02e8911692e7f1a83c8a3bc4547aa4929dbe95eae32ac677"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -940,7 +940,7 @@
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
-      "sha256": "4c67d0112c3268fe538dff9adcc404ec0312819d113bb9beb2fa00e142eb75c2"
+      "sha256": "f532bb9674fe4913c1f05252d636552d31f36afe2d3ce635a00b93246fc221bb"
     },
     {
       "path": "docs/creative-decision-center/V3_TO_V21_MAPPING.md",
@@ -3628,11 +3628,11 @@
     },
     {
       "path": "scripts/ops/install-native-cold-runtime-test.py",
-      "sha256": "6ecc1e36ca635480e32e85dfa6d283b3202a9f7f9e5b29b7838d920a46aff743"
+      "sha256": "cd5711793856688cd73da5a905217fa528bb6286fb6c230d52eb86def14d9fa6"
     },
     {
       "path": "scripts/ops/install-native-cold-runtime.py",
-      "sha256": "3b217c454dfcb5839614ba7eaa087b59b9fe0bfe11824189142a63769d367a7c"
+      "sha256": "d0413d633252d9e56d79a69e4d5c3a53e4dba9756d424820f8f870bc3a127e0f"
     },
     {
       "path": "scripts/ops/install-native-cold-runtime.test.ts",

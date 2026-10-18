@@ -39,6 +39,15 @@ class RuntimePreflight(unittest.TestCase):
             self.assertNotIn('NATIVE_COLD_LIFECYCLE_ENABLED=true',args)
             return result
 
+    def test_operator_pin_matches_the_actual_committed_runtime_inventory(self):
+        path = os.path.realpath(os.path.join(os.path.dirname(__file__), '../native-cold-lifecycle/source-inventory.json'))
+        with open(path) as source:
+            inventory = json.load(source)
+        self.assertEqual(op.RUNTIME_INVENTORY, inventory['sourceInventorySha256'],
+                         'host operator must import the exact newly reviewed runtime, not its predecessor')
+        self.assertFalse(any(entry['path'] == 'scripts/ops/install-native-cold-runtime.py'
+                             for entry in inventory['files']), 'host operator has a separate reviewed digest')
+
     def test_uses_live_source_bytes_without_reading_or_relabeling_the_frozen_host_checkout(self):
         self.assertEqual(self.verify()['runtimeFilesVerified'],1)
 

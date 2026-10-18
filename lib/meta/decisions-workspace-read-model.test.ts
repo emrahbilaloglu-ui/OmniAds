@@ -971,6 +971,76 @@ describe("Meta Decisions workspace canonical read model", () => {
     );
   });
 
+  it("reports actual native phases without changing any model or SQL bindings", async () => {
+    const rows = [nativeSnapshot("120000000000009001")];
+    const input = {
+      businessId: "biz_1", providerAccountId: "act_1", adIds: [rows[0]!.ad_id],
+      generatedAt: "2026-07-12T12:00:00.000Z",
+    };
+    const baselineQuery = workspaceReadQuery({ generationRows: [nativeGenerationForRows(rows)], nativeRows: rows });
+    vi.mocked(db.getDb).mockReturnValue({ query: baselineQuery } as never);
+    const baseline = await readMetaDecisionsWorkspaceReadModel(input);
+    const observedQuery = workspaceReadQuery({ generationRows: [nativeGenerationForRows(rows)], nativeRows: rows });
+    vi.mocked(db.getDb).mockReturnValue({ query: observedQuery } as never);
+    const onReadTiming = vi.fn();
+    const observed = await readMetaDecisionsWorkspaceReadModel({ ...input, onReadTiming });
+    expect(observed).toEqual(baseline);
+    expect(observedQuery.mock.calls).toEqual(baselineQuery.mock.calls);
+    expect(new Set(onReadTiming.mock.calls.map(([phase]) => phase))).toEqual(new Set([
+      "native_generation", "native_manifest", "native_projection", "native_ancillary", "native_model",
+      "native_campaign_context", "native_events", "native_outcomes", "native_responses", "native_adset_roles",
+    ]));
+    for (const [phase, duration] of onReadTiming.mock.calls) {
+      expect(phase).toMatch(/^native_[a-z_]+$/);
+      expect(Number.isFinite(duration) && duration >= 0).toBe(true);
+    }
+    expect(observed).not.toHaveProperty("onReadTiming");
+  });
+
+  it.each(["sync", "async", "pending"])("keeps a %s diagnostic sink failure from changing decisions", async (mode) => {
+    const rows = [nativeSnapshot("120000000000009002")];
+    const query = workspaceReadQuery({ generationRows: [nativeGenerationForRows(rows)], nativeRows: rows });
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+    const model = await readMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1", providerAccountId: "act_1", adIds: [rows[0]!.ad_id],
+      onReadTiming: () => {
+        if (mode === "sync") throw new Error("owned diagnostic failure");
+        if (mode === "async") return Promise.reject(new Error("owned diagnostic rejection"));
+        return new Promise<void>(() => undefined);
+      },
+    });
+    expect(model.status).toBe("available");
+    expect(model.source.authority).toBe("native_ad");
+    await Promise.resolve();
+  });
+
+  it("retains the invalid-manifest refusal before any native projection with diagnostics", async () => {
+    const rows = [nativeSnapshot("120000000000009003")];
+    const query = workspaceReadQuery({ generationRows: [nativeGenerationForRows(rows)], nativeRows: rows, manifestAdIds: [] });
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+    const onReadTiming = vi.fn();
+    const model = await readMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1", providerAccountId: "act_1", adIds: [rows[0]!.ad_id], onReadTiming,
+    });
+    expect(model.status).toBe("unavailable");
+    expect(model.source.fallbackReason).toBe("native_generation_lineage_or_manifest_invalid");
+    expect(onReadTiming.mock.calls.map(([phase]) => phase)).toEqual(["native_generation", "native_manifest"]);
+    expect(query.mock.calls.some(([sql]) => sql.includes("WITH ad_daily AS MATERIALIZED"))).toBe(false);
+  });
+
+  it("records a failed manifest read while preserving its original rejection", async () => {
+    const rows = [nativeSnapshot("120000000000009004")];
+    const ordinary = workspaceReadQuery({ generationRows: [nativeGenerationForRows(rows)], nativeRows: rows });
+    const error = new Error("owned manifest source failure");
+    const query = vi.fn((sql: string, params?: unknown[]) => sql.includes("native-ad-serving-manifest") ? Promise.reject(error) : ordinary(sql, params));
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+    const onReadTiming = vi.fn();
+    await expect(readMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1", providerAccountId: "act_1", adIds: [rows[0]!.ad_id], onReadTiming,
+    })).rejects.toBe(error);
+    expect(onReadTiming.mock.calls.map(([phase]) => phase)).toEqual(["native_generation", "native_manifest"]);
+  });
+
   it("trusts only high-confidence automatic campaign context for hard-role semantics", () => {
     const input = {
       businessId: "biz_1",

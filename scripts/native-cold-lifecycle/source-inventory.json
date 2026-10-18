@@ -38,8 +38,8 @@
     },
     {
       "path": "app/api/meta/decisions-workspace/route.ts",
-      "sha256": "60a5ee7a97059f4cc8f14c7d355ca4f94917ab5737b610d6837552c652332ecc",
-      "bytes": 115886
+      "sha256": "031435bf0fc4f59f6faa52a862cd7fc0f521b47a7dd93845da40ea914a21a37b",
+      "bytes": 116511
     },
     {
       "path": "app/api/meta/status/route.ts",
@@ -318,8 +318,8 @@
     },
     {
       "path": "lib/meta/decisions-workspace-read-model.ts",
-      "sha256": "6ffd935db7684c1e52607aa1853285fd8c5eeff72b167b9257a853a11fcc4746",
-      "bytes": 262699
+      "sha256": "e4864fa3c3973f171ff49f714ed67a2dc187b4931d891de32c7266ffdf42eba7",
+      "bytes": 265623
     },
     {
       "path": "lib/meta/native-config-action-authority.ts",
@@ -842,5 +842,5 @@
       "bytes": 4644
     }
   ],
-  "sourceInventorySha256": "76db745023ae9a60ef0f90a9e84c960258f7ddaba9605787802a92697e72cfc4"
+  "sourceInventorySha256": "a2e6085197dda5b85c25a2a0aa4cf2df560965944ab1cd64f217120646df9971"
 }

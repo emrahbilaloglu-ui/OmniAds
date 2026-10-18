@@ -2,6 +2,10 @@
 
 This is the first file future GPT/Codex/Claude chats should read before working on the Adsecute / OmniAds Creative page migration.
 
+For a slow native workspace read whose subphase is not yet attributable,
+read [D196](DECISION_LOG.md#d196--observe-native-serving-subphases-without-changing-decision-reads-2026-10-18).
+Scalar Server-Timing is diagnostic only; it does not relax first-request acceptance.
+
 For repeated identical physical-account timezone reads within one workspace GET,
 read [D195](DECISION_LOG.md#d195--share-only-identical-timezone-observations-within-one-workspace-request-2026-10-18).
 Date/surface publication proof and all writer admission remain independent.

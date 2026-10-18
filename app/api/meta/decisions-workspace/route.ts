@@ -1,3 +1,4 @@
+import type { MetaNativeDecisionReadObserver } from "@/lib/meta/decisions-workspace-read-model";
 import { runWithDbJitDisabled } from "@/lib/db-jit-scope";
 import { runWithMetaVerificationTimezoneObservations } from "@/lib/meta/verification-timezone-observation";
 import { reportingDayCount } from "@/lib/meta/reporting-period";
@@ -544,6 +545,7 @@ async function resolveWorkspaceEndDate(input: {
 }
 
 async function canonicalDecisionReadModel(input: {
+  onReadTiming?: MetaNativeDecisionReadObserver;
   businessId: string;
   providerAccountId: string | null;
   adCandidateLimit: number;
@@ -625,6 +627,7 @@ async function canonicalDecisionReadModel(input: {
     return {
       ok: true,
       model: await readMetaDecisionsWorkspaceReadModel({
+        onReadTiming: input.onReadTiming,
         businessId: input.businessId,
         providerAccountId: input.providerAccountId,
         adCandidateLimit: input.adCandidateLimit,
@@ -1489,6 +1492,12 @@ async function readMetaDecisionsWorkspace(request: NextRequest) {
   const requestStartedAt = performance.now();
   const requestEvaluatedAt = new Date();
   const requestGeneratedAt = requestEvaluatedAt.toISOString();
+  const nativeReadTimings = new Map<string, number>();
+  const onNativeReadTiming: MetaNativeDecisionReadObserver = (phase, durationMs) => {
+    if (/^native_[a-z_]+$/.test(phase) && Number.isFinite(durationMs) && durationMs >= 0) {
+      nativeReadTimings.set(phase, durationMs);
+    }
+  };
   const businessId = request.nextUrl.searchParams.get("businessId");
   if (!businessId) {
     return NextResponse.json(
@@ -1956,6 +1965,7 @@ async function readMetaDecisionsWorkspace(request: NextRequest) {
   const decisionReadPromise = currentAdsPromise.then(async (currentAds) => {
     const loadDecisionRead = () =>
       canonicalDecisionReadModel({
+        onReadTiming: onNativeReadTiming,
         businessId,
         providerAccountId,
         adCandidateLimit,
@@ -2690,6 +2700,7 @@ async function readMetaDecisionsWorkspace(request: NextRequest) {
       `current_ads;dur=${workspaceTimings.currentAdsMs.toFixed(1)}`,
       `decision_read;dur=${workspaceTimings.decisionReadMs.toFixed(1)}`,
       `decision_bundle;dur=${workspaceTimings.decisionBundleMs.toFixed(1)}`,
+      ...[...nativeReadTimings].map(([phase, durationMs]) => `${phase};dur=${durationMs.toFixed(1)}`),
       `response_build;dur=${workspaceTimings.responseBuildMs.toFixed(1)}`,
       `total;dur=${workspaceTimings.totalMs.toFixed(1)}`,
     ].join(", ");

@@ -1,5 +1,5 @@
 {
-  "manifestHash": "7e6d8168ec36530fa92869ebd1d6abd4f24309e12ae1ab4d6ea6c417c96bf9bc",
+  "manifestHash": "2c4bb1e2c7b645ba13921f6b04ced364add4a4af9eb26235b5254b8f92c1bb73",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -884,7 +884,7 @@
     },
     {
       "path": "docs/architecture/native-retained-reader-ledger.json",
-      "sha256": "82a963874ab69fc053cb450af1d1d8c4c23e8b0e68e048895cf08159b89b1a00"
+      "sha256": "162e2f7bff37d18141baac328ececd45d43e41a3d0e3eb0aee0445df3faf0afe"
     },
     {
       "path": "docs/architecture/native-retained-reader-lifecycle.md",
@@ -928,7 +928,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "57ba0ab169b7d39ef2fd0fec0d17552173a32de9f43631c652bc2a3659030caf"
+      "sha256": "de134246007e37df6221834e3c45919e113fc3712e8dbcb05acf88f08bdbfaf3"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -940,7 +940,7 @@
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
-      "sha256": "3afb1ade89e5e776117f5e37f36554b7329ad1e3f4d27f35d4f68e6dde729a45"
+      "sha256": "4c67d0112c3268fe538dff9adcc404ec0312819d113bb9beb2fa00e142eb75c2"
     },
     {
       "path": "docs/creative-decision-center/V3_TO_V21_MAPPING.md",
@@ -2788,11 +2788,11 @@
     },
     {
       "path": "lib/sync/db-growth-fence.test.ts",
-      "sha256": "6973454a501212345c2fa7203b2f1d4f80e46c4f270f74ddd51daf922e4ac16f"
+      "sha256": "bb3549b096329084beae83e345d3ac96f36bac55f1a7417be04e04a345f236ac"
     },
     {
       "path": "lib/sync/db-growth-fence.ts",
-      "sha256": "9d2d632b2e2a4fe2908ab6beb8930071688aa57bc861699a1c0a6b038d8358cf"
+      "sha256": "de1d87c962d113751d881407f630e0152e7faf0b6edcc65ddc846cbb8edac643"
     },
     {
       "path": "lib/sync/global-kill-switch.test.ts",
@@ -3236,7 +3236,7 @@
     },
     {
       "path": "scripts/meta-status-api-readers-pg.ts",
-      "sha256": "5ca088a1f0f76e0fc26c078dc28ec942c3d484aee5ee0b32a0f918a0f247041d"
+      "sha256": "e4cf26da7746f4a18247619e02b2e9df56f94198a1633b448100217f81257be1"
     },
     {
       "path": "scripts/meta/certify-creative-day-config.ts",
@@ -3436,7 +3436,7 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/source-inventory.json",
-      "sha256": "e76b0bd6cc640fd8e2586338cc033d06230c17c32ab6a4ef1b47f3db34488c7a"
+      "sha256": "524955b62d01089fbb1e979eb53e0a94a93c580d572711a23112446837fee51e"
     },
     {
       "path": "scripts/native-cold-lifecycle/types.ts",

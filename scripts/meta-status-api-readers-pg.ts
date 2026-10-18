@@ -13,7 +13,7 @@ function routeSql(file: string, functionName: string) {
   function walk(node: ts.Node, inside = false) {
     inside ||= ts.isFunctionDeclaration(node) && node.name?.text === functionName;
     if (inside && ts.isNoSubstitutionTemplateLiteral(node) && node.text.includes("scoped_legacy_snapshots AS MATERIALIZED")) queries.push(node.text);
-    if (inside && functionName === "evaluateDbGrowthFence" && ts.isNoSubstitutionTemplateLiteral(node) && node.text.includes("latest_capacity AS")) queries.push(node.text);
+    if (inside && functionName === "evaluateDbGrowthFenceWithProofOrdering" && ts.isNoSubstitutionTemplateLiteral(node) && node.text.includes("latest_capacity AS")) queries.push(node.text);
     if (inside && ts.isTemplateExpression(node) && node.templateSpans.length === 1 &&
         node.templateSpans[0]!.expression.getText(source) === "input.tableName") {
       queries.push(node.head.text + "meta_adset_daily" + node.templateSpans[0]!.literal.text);
@@ -70,7 +70,7 @@ export async function verifyMetaStatusApiReadersPg(client: Client) {
   const coverageQueries = routeSql("lib/meta/warehouse.ts", "getMetaCoverageForTable");
   const breakdownQueries = routeSql("lib/meta/warehouse.ts", "getMetaBreakdownDailyCoverageByEndpoint");
   const anomalies = routeSql("app/api/meta/decisions-workspace/route.ts", "readDecisionDigest");
-  const capacity = routeSql("lib/sync/db-growth-fence.ts", "evaluateDbGrowthFence");
+  const capacity = routeSql("lib/sync/db-growth-fence.ts", "evaluateDbGrowthFenceWithProofOrdering");
   assert.equal(dates.length, 2); assert.equal(pulse.length, 1); assert.equal(coverageQueries.length, 1);
   assert.equal(breakdownQueries.length, 1);
   assert.equal(anomalies.length, 1);

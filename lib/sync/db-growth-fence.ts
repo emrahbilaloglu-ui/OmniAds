@@ -675,6 +675,16 @@ export async function evaluateDbGrowthFence(input?: {
   nowMs?: number;
   queryTimeoutMs?: number;
 }): Promise<DbGrowthFenceDecision> {
+  return evaluateDbGrowthFenceWithProofOrdering(input, false);
+}
+
+/** One evaluator and policy. Only status observations may overlap independent
+ * proofs; every admission caller retains the original sequential ordering. */
+async function evaluateDbGrowthFenceWithProofOrdering(input: {
+  env?: Readonly<Record<string, string | undefined>>;
+  nowMs?: number;
+  queryTimeoutMs?: number;
+} | undefined, overlapReadOnlyProofs: boolean): Promise<DbGrowthFenceDecision> {
   const env = input?.env ?? process.env;
   const evaluatedAt = new Date(input?.nowMs ?? Date.now()).toISOString();
   const databaseBudget = readBudget(
@@ -944,6 +954,18 @@ export async function evaluateDbGrowthFence(input?: {
     stateHistoryEffective = null;
   }
 
+  // Status only: these proofs touch disjoint heaps and share no input derived
+  // from the native proof. Observe rejection immediately, then consume the same
+  // raw result at its original policy step. Write admission never starts early.
+  const rawRead = overlapReadOnlyProofs &&
+    env.SYNC_GROWTH_FENCE_REUSABLE_NATIVE_HEAP_ENABLED === "true" &&
+    env.SYNC_GROWTH_FENCE_RAW_REUSE_ENABLED === "true"
+    ? Promise.resolve().then(() => measureRawPayloadReusableSpace(
+        getDbWithTimeout(input?.queryTimeoutMs ?? DEFAULT_QUERY_TIMEOUT_MS),
+        tableBytes as Record<string, number>,
+      )).then(value => ({ ok: true as const, value }), error => ({ ok: false as const, error }))
+    : null;
+
   let databaseAccounting = deriveNativeReusableHeapAccounting(databaseBytes, null, "disabled");
   if (env.SYNC_GROWTH_FENCE_REUSABLE_NATIVE_HEAP_ENABLED === "true") {
     try {
@@ -976,17 +998,28 @@ export async function evaluateDbGrowthFence(input?: {
           physicalInput.snapshot.ageSeconds + Math.max(0,Date.now()-physicalReadAt)/1000,
       } : null,
       databaseBytes: databaseAccounting.accountedDatabaseBytes });
-    if (!physical.admitted) return { ...denied({
-      reason: PHYSICAL_FENCE_REASON[physical.reason as Exclude<PhysicalCapacityReason, "ok">],
-      budget: databaseBudget, databaseBytes, evaluatedAt, physical,
-      errorMessage: physical.detail,
-    }), databaseAccounting };
+    if (!physical.admitted) {
+      // Drain a started observation before returning the original denial; it
+      // cannot lend authority or leave a detached/unhandled proof behind.
+      if (rawRead) await rawRead;
+      return { ...denied({
+        reason: PHYSICAL_FENCE_REASON[physical.reason as Exclude<PhysicalCapacityReason, "ok">],
+        budget: databaseBudget, databaseBytes, evaluatedAt, physical,
+        errorMessage: physical.detail,
+      }), databaseAccounting };
+    }
   }
 
   let rawPayloadReuse: RawPayloadReusableSpace | undefined;
   if (env.SYNC_GROWTH_FENCE_RAW_REUSE_ENABLED === "true") {
-    rawPayloadReuse = await measureRawPayloadReusableSpace(
-      getDbWithTimeout(input?.queryTimeoutMs ?? DEFAULT_QUERY_TIMEOUT_MS), tableBytes as Record<string,number>);
+    if (rawRead) {
+      const result = await rawRead;
+      if (!result.ok) throw result.error;
+      rawPayloadReuse = result.value;
+    } else {
+      rawPayloadReuse = await measureRawPayloadReusableSpace(
+        getDbWithTimeout(input?.queryTimeoutMs ?? DEFAULT_QUERY_TIMEOUT_MS), tableBytes as Record<string,number>);
+    }
     const freshRaw = Math.max(databaseBytes,...Object.values(rawPayloadReuse).map(p => p.measuredDatabaseBytes ?? 0));
     databaseBytes = freshRaw;
     databaseAccounting = { ...databaseAccounting, rawDatabaseBytes: freshRaw,
@@ -1230,7 +1263,7 @@ export async function readDbGrowthFenceObservation(input?: {
   if (pending?.key === key && pending.startedAt <= nowMs &&
       nowMs - pending.startedAt < READ_OBSERVATION_TTL_MS) return pending.promise;
 
-  const promise = evaluateDbGrowthFence({ ...input, env, nowMs }).then((decision) => {
+  const promise = evaluateDbGrowthFenceWithProofOrdering({ ...input, env, nowMs }, true).then((decision) => {
     const measuredAt = Date.parse(decision.evaluatedAt);
     const physical = decision.physical;
     const physicalExpiry = physical?.sampledAt

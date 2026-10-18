@@ -74,5 +74,28 @@ out=$(rootcron_start 2>&1) || true
 case "$out" in *"refusing to invent"*) pass "A7 missing saved block still refuses to invent entries";; *) fail "A7 lost the invent-refusal: $out";; esac
 mv "$STATE_DIR/.b" "$STATE_DIR/rootcron.block"
 
+# A8 POSITIVE: D194's exact locked caller is still provably adoptable after a
+# NEW preflight records it. This does not adopt a changed old preflight hash.
+WRAPPED_BODY="$(python3 - "$BLOCK_BODY" <<'PY'
+import importlib.util,sys
+sys.dont_write_bytecode=True
+s=importlib.util.spec_from_file_location('caller','scripts/operator/sync-cron-call-lifecycle.py')
+m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+text='# BEGIN adsecute-sync\n'+sys.argv[1]+'\n# END adsecute-sync\n'
+print(m.plan(text)[0].splitlines()[1])
+PY
+)"
+printf '# BEGIN adsecute-sync\n%s\n# END adsecute-sync\n' "$WRAPPED_BODY" > "$STATE_DIR/rootcron.block"
+STATE_SCHED="$(sha256_file "$STATE_DIR/rootcron.block")"
+mk_crontab "$WRAPPED_BODY"
+if out=$(rootcron_start 2>&1); then
+  case "$out" in *adopting*) pass "A8 exact locked caller is adopted after matching preflight";; *) fail "A8 returned 0 without adopting: $out";; esac
+else fail "A8 locked caller refused: $out"; fi
+
+# A9 NEGATIVE: the same wrapper may not bypass an earlier frozen definition.
+STATE_SCHED="$BLOCK_SHA"
+out=$(rootcron_start 2>&1) || true
+case "$out" in *scheduler_sha256*) pass "A9 locked caller refuses a different recorded definition";; *) fail "A9 wrapper bypassed frozen scheduler hash: $out";; esac
+
 [ "$F" -ne 0 ] && { printf '%s %s FAILED\n' "$L" "$F" >&2; exit 1; }
 printf '%s PASS — adopts only a provably identical block, refuses every mismatch\n' "$L"

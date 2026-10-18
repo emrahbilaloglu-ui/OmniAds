@@ -1,5 +1,5 @@
 {
-  "manifestHash": "0e67360addd6a765bfe1a568445193b5720b3d895222c8c28a0146a98c89a91b",
+  "manifestHash": "cc75de5315dcfa95589d21f12b7957c133425ab8c3b292b143979c34cdca332c",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -3656,7 +3656,7 @@
     },
     {
       "path": "scripts/read-path-write-reachability.ts",
-      "sha256": "a0ec9a32d4a5a09ed78085cf0b72b682d5219d60aa7d5e4d5e491e50bb7136c8"
+      "sha256": "a5cd880752e2877e2fc4651156bf0fbab8531b8f973633859fe57eda2e8b2d6a"
     },
     {
       "path": "scripts/sync-worker-healthcheck.ts",

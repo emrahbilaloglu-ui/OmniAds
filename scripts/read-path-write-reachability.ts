@@ -277,10 +277,10 @@ export const REQUEST_PATH_WRITE_EXCEPTIONS: ReadonlyArray<RequestPathWriteExcept
   },
   {
     writeSite: "lib/sync/runtime-contract.ts#upsertRuntimeContractInstance",
-    via: "app/api/meta/status/route.ts#GET",
+    via: "app/api/meta/status/route.ts#readMetaStatus",
     tables: ["sync_runtime_instances"],
     reason:
-      "Same liveness heartbeat as /api/build-info, on the Meta status surface: the instance registers its runtime contract so a status read from an instance running a stale build is identifiable as such.",
+      "Same liveness heartbeat as /api/build-info, on the Meta status surface: the instance registers its runtime contract so a status read from an instance running a stale build is identifiable as such. D183 keeps this exact existing writer/table under the private readMetaStatus helper called by GET inside its request-local JIT scope; no additional write or caller is allowed.",
   },
   {
     writeSite: "lib/sync/runtime-contract.ts#upsertRuntimeContractInstance",

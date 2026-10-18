@@ -312,13 +312,41 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
       const before = await foreign();
       const {rows:[ref]} = await db.query("SELECT to_regclass('public.idx_engine_v3_ad_evaluations_contract_input') AS present");
       if(!ref.present) { await addObservedProductionReferenceIndex(db); addedReference=true; }
+      // Owned-only visibility reproduction: all-visible pages can make the
+      // former SELECT-1 LIMIT prefer the non-leading controlled-identity key.
+      // Preserve every original deletion/foreign-byte/rollback assertion.
+      await db.query("VACUUM (ANALYZE) public.engine_v3_ad_decision_evaluations");
+      // Keep a bounded owned-only plan diagnostic if CI ever refuses again.
+      let ownedAbsencePlan: unknown = null;
+      const originalQuery = Client.prototype.query;
+      Client.prototype.query = function(this: Client, ...args: unknown[]) {
+        const text = typeof args[0] === "string" ? args[0] : (args[0] as {text?: string})?.text ?? "";
+        const result = originalQuery.apply(this, args as never);
+        if (text.startsWith("EXPLAIN") && (text.includes("business_erasure_owner_absence") ||
+            (text.includes("SELECT 1 FROM") && text.includes("LIMIT 1"))) &&
+            result && typeof (result as unknown as Promise<unknown>).then === "function") {
+          return (result as unknown as Promise<{rows: Array<Record<string, unknown>>}>).then(value => {
+            const nodes: unknown[] = [];
+            const walk = (node: Record<string, unknown>) => {
+              nodes.push({type: node["Node Type"], index: node["Index Name"], condition: node["Index Cond"], relation: node["Relation Name"]});
+              for (const child of (node.Plans ?? []) as Record<string, unknown>[]) walk(child);
+            };
+            walk((value.rows[0]!["QUERY PLAN"] as Array<{Plan: Record<string, unknown>}>)[0]!.Plan);
+            ownedAbsencePlan = nodes.slice(0, 12);
+            return value;
+          }) as never;
+        }
+        return result;
+      } as typeof Client.prototype.query;
       try {
         await deleteBusinessWithData(target.business);
       } catch (error) {
         if (error instanceof BusinessDeletionError) {
-          throw new Error(`Owned binding erasure refused: code=${error.code}; tables=${error.tables.join(",")}`, { cause: error });
+          throw new Error(`Owned binding erasure refused: code=${error.code}; tables=${error.tables.join(",")}; absencePlan=${JSON.stringify(ownedAbsencePlan)}`, { cause: error });
         }
         throw error;
+      } finally {
+        Client.prototype.query = originalQuery;
       }
       expect(await remains(target.business)).toBe(false);
       for (const table of ["meta_creative_lineage_edges","meta_entity_observation_runs"]) {
@@ -1088,7 +1116,7 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
     let injected=false;
     await withPinnedDbClient(async client=>{
       const wrapped={query:async(text:string,params?:unknown[])=>{
-        if(text.startsWith('EXPLAIN (FORMAT JSON) SELECT 1 FROM "public"."meta_adset_daily" WHERE (')) {
+        if(text.startsWith('EXPLAIN (FORMAT JSON) DECLARE business_erasure_owner_absence ') && text.includes('FROM "public"."meta_adset_daily" WHERE (')) {
           injected=true;
           return {rows:[{"QUERY PLAN":[{Plan:{"Node Type":"Limit",Plans:[{"Node Type":"Seq Scan","Relation Name":"meta_adset_daily"}]}}]}]};
         }
@@ -1103,8 +1131,8 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
     const checked:string[]=[],probed:string[]=[];
     await withPinnedDbClient(async client=>{
       const wrapped={query:async(text:string,params?:unknown[])=>{
-        if(text.startsWith('EXPLAIN (FORMAT JSON) SELECT 1 FROM "public"."meta_adset_daily" WHERE ('))checked.push(text);
-        if(text.startsWith('SELECT 1 FROM "public"."meta_adset_daily" WHERE ('))probed.push(text);
+        if(text.startsWith('EXPLAIN (FORMAT JSON) DECLARE business_erasure_owner_absence ') && text.includes('FROM "public"."meta_adset_daily" WHERE ('))checked.push(text);
+        if(text.startsWith('DECLARE business_erasure_owner_absence ') && text.includes('FROM "public"."meta_adset_daily" WHERE ('))probed.push(text);
         return client.query(text,params);
       }};
       await deleteBusinessWithData(businessId,{client:wrapped as never});

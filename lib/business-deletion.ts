@@ -916,6 +916,7 @@ export async function deleteBusinessWithData(businessId: string,
       throw error;
     }
     mark("absence_and_guard_restore");
+    await sql.query("SET LOCAL cursor_tuple_fraction=1");
     for (const [table, scope] of scopes) {
       mark(`absence:${table}`);
       // D164: bitmap access remains off after the indexed RI/input phases.
@@ -924,12 +925,26 @@ export async function deleteBusinessWithData(businessId: string,
       // existing owner arm separately with its constrained leading index.
       // CHECKed canonical and validated episode ownership retain their rules.
       for (const { predicate, owner } of scopePredicates(scope)) {
-        const query = `SELECT 1 FROM ${qualified(table)} WHERE (${predicate}) LIMIT 1`;
+        let remaining: boolean;
         if (!owner.episode_bound && owner.indexed) {
-          const [plan] = await sql.query(`EXPLAIN (FORMAT JSON) ${query}`, [businessId]);
+          // Plan the exact owner range, then fetch only its first tuple. A
+          // SELECT-1 LIMIT can prefer a whole non-leading index-only walk when
+          // visibility changes; it must not bypass the unchanged owner guard.
+          // Physical identity needs the heap, as the existing owned-row census
+          // does. The non-holdable cursor is closed by rollback on any error.
+          const declare = `DECLARE business_erasure_owner_absence NO SCROLL CURSOR FOR
+            SELECT ctid::text AS row_tid,tableoid::text AS row_table
+            FROM ${qualified(table)} WHERE (${predicate})`;
+          const [plan] = await sql.query(`EXPLAIN (FORMAT JSON) ${declare}`, [businessId]);
           verifyOwnerReadPlan(plan!["QUERY PLAN"][0].Plan, [owner]);
+          await sql.query(declare, [businessId]);
+          const rows = await sql.query("FETCH FORWARD 1 FROM business_erasure_owner_absence");
+          await sql.query("CLOSE business_erasure_owner_absence");
+          remaining = rows.length > 0;
+        } else {
+          const [row] = await sql.query(`SELECT 1 FROM ${qualified(table)} WHERE (${predicate}) LIMIT 1`, [businessId]);
+          remaining = Boolean(row);
         }
-        const [remaining] = await sql.query(query, [businessId]);
         if (remaining) throw new BusinessDeletionError("schema_not_ready", [table]);
       }
     }

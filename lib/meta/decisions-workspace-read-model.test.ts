@@ -15,6 +15,7 @@ import {
   readMetaDecisionCampaignContextRows,
   readMetaDecisionsWorkspaceReadModel,
   readMetaNativeCanonicalDecisionInventory,
+  readNativeSnapshotRows,
   readMetaDecisionAdsetRoleRows,
   readValidatedMetaNativeDecisionGenerationBundle,
   resolveProvisionalCampaignKind,
@@ -5316,7 +5317,8 @@ describe("the native snapshot read stays inside its query budget", () => {
   });
 
   /**
-   * The served currency is read once for the whole account, not once per ad.
+   * Full-account currency stays batched. Only an explicit set of at most120
+   * normalized Ad ids may use the separately guarded point lookup.
    *
    * The per-ad LATERAL was sargable, but two indexes both offered its ordering
    * and the planner costed them 59.07 against 61.35. On one production account
@@ -5329,16 +5331,16 @@ describe("the native snapshot read stays inside its query budget", () => {
    * (business, account, date, ad) unique -- date alone already decides. Keep
    * the ORDER BY in step with that key if it ever moves.
    */
-  it("reads the account currency in one pass, not once per ad", () => {
+  it("keeps the full-account currency batch and bounds the small-subset exception", () => {
     expect(source).toContain("WITH ad_daily AS MATERIALIZED (");
     expect(source).toContain("SELECT DISTINCT ON (daily.ad_id)");
     expect(source).toContain(
       "ORDER BY daily.ad_id, daily.date DESC, daily.updated_at DESC",
     );
-    expect(
-      source,
-      "the currency must not be correlated back to a single snapshot row",
-    ).not.toContain("AND daily.ad_id = snapshot.ad_id");
+    expect(source).toContain("AND NOT $11::boolean");
+    expect(source).toContain("WHERE $11::boolean");
+    expect(source).toContain("input.adIds !== undefined && adIds.length <= NATIVE_POINT_CURRENCY_MAX_AD_IDS");
+    expect(source).toContain("const NATIVE_POINT_CURRENCY_MAX_AD_IDS = 120;");
   });
 
   it("keeps the lifecycle lineage join the creative surfaces read from", () => {
@@ -6754,5 +6756,45 @@ describe("known prior engine epoch remains review-only", () => {
     const model = await readMetaDecisionsWorkspaceReadModel({businessId:"biz_1",providerAccountId:"act_1",generatedAt});
     expect(model.source.degraded).toBeUndefined();
     expect(model.source.authority).not.toBe("native_ad");
+  });
+});
+
+
+describe("bounded native currency read plan", () => {
+  it.each([
+    { count: undefined, point: false },
+    { count: 0, point: true },
+    { count: 1, point: true },
+    { count: 120, point: true },
+    { count: 121, point: false },
+  ])("keeps the same scope and uses the bounded plan only for $count explicit ids", async ({ count, point }) => {
+    const query = vi.fn(async (_text: string, _values?: readonly unknown[]) => []);
+    const adIds = count === undefined ? undefined : Array.from({ length: count }, (_, index) => `ad-${index}`);
+    await readNativeSnapshotRows({
+      businessId: "11111111-1111-4111-8111-111111111111", providerAccountId: "act-owned",
+      generation: { jobRunId: "22222222-2222-4222-8222-222222222222", asOfDate: "2026-01-15",
+        providerAccountRefId: "33333333-3333-4333-8333-333333333333", manifestHash: "a".repeat(64), expectedAdCount: 140 },
+      adIds,
+    }, { query });
+    const [sql, values] = query.mock.calls[0]!;
+    expect(values?.slice(0, 5)).toEqual(["11111111-1111-4111-8111-111111111111", "act-owned",
+      "22222222-2222-4222-8222-222222222222", "2026-01-15", "33333333-3333-4333-8333-333333333333"]);
+    expect(values?.[8]).toBe(adIds !== undefined);
+    expect(values?.[9]).toEqual([...(adIds ?? [])].sort());
+    expect(values?.[10]).toBe(point);
+    expect(sql).toContain("daily.ad_id = snapshot.ad_id");
+    expect(sql).toContain("ORDER BY daily.date DESC, daily.updated_at DESC");
+    expect(sql).toContain("ELSE ad_daily.account_currency END AS currency");
+  });
+
+  it("uses the normalized exact-Ad set for the plan bound", async () => {
+    const query = vi.fn(async (_text: string, _values?: readonly unknown[]) => []);
+    await readNativeSnapshotRows({ businessId: "owned", providerAccountId: "act-owned",
+      generation: { jobRunId: "owned-job", asOfDate: "2026-01-15", providerAccountRefId: "owned-account",
+        manifestHash: "a".repeat(64), expectedAdCount: 1 },
+      adIds: Array.from({ length: 240 }, () => " ad-a "),
+    }, { query });
+    expect(query.mock.calls[0]?.[1]?.[9]).toEqual(["ad-a"]);
+    expect(query.mock.calls[0]?.[1]?.[10]).toBe(true);
   });
 });

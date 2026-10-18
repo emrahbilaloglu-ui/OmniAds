@@ -586,6 +586,50 @@ describe("GET /api/meta/decisions-workspace", () => {
     expect(response.status).toBe(200);
   });
 
+  it("starts account coverage while the exact decision is pending and awaits both", async () => {
+    vi.stubEnv("META_DECISIONS_UPSTREAM_TRANSPORT", "in_process");
+    assignmentsMock.getProviderAccountAssignments.mockResolvedValue({
+      id: "assignment_1", business_id: "biz_1", provider: "meta", account_ids: ["act_1"],
+      created_at: "2026-07-01T00:00:00.000Z", updated_at: "2026-07-01T00:00:00.000Z",
+    });
+    metaApiMock.resolveMetaCredentials.mockResolvedValue({
+      businessId: "biz_1", accessToken: "test-token", accountIds: ["act_1"], currency: "USD", accountProfiles: {},
+    });
+    metaApiMock.fetchMetaActiveAdConfigsReceipt.mockResolvedValue({ complete: true, termination: "complete", rows: [] });
+    upstreamRouteMock.accountPulseGet.mockResolvedValue(jsonResponse(metaPulse()));
+    upstreamRouteMock.laneClassificationGet.mockResolvedValue(jsonResponse(metaLanePayload()));
+    let releaseDecision!: () => void, signalDecision!: () => void, releaseCoverage!: () => void;
+    const decisionGate = new Promise<void>(resolve => { releaseDecision = resolve; });
+    const decisionStarted = new Promise<void>(resolve => { signalDecision = resolve; });
+    const coverageGate = new Promise<void>(resolve => { releaseCoverage = resolve; });
+    const original = readModelMock.readMetaDecisionsWorkspaceReadModel.getMockImplementation()!;
+    readModelMock.readMetaDecisionsWorkspaceReadModel.mockImplementation(async (...args: unknown[]) => {
+      signalDecision(); await decisionGate; return original(...args);
+    });
+    const query = vi.fn(async (text: string) => {
+      if (text.includes("generation_counts")) { await coverageGate; return []; }
+      if (text.includes("candidate_dates AS")) return [{ latest_as_of: "2026-07-08" }];
+      return [];
+    });
+    Object.assign(mockDigestSql(), { query });
+    let settled = false;
+    const pending = GET(new NextRequest("http://localhost/api/meta/decisions-workspace?businessId=biz_1&providerAccountId=act_1&activeAdDecisions=1"))
+      .then(response => { settled = true; return response; });
+    await decisionStarted;
+    try {
+      await vi.waitFor(() => expect(query.mock.calls.some(([text]) => text.includes("generation_counts"))).toBe(true));
+      expect(settled).toBe(false);
+      releaseDecision();
+      await new Promise<void>(resolve => setImmediate(resolve));
+      expect(settled).toBe(false);
+    } finally {
+      releaseDecision(); releaseCoverage();
+    }
+    const response = await pending;
+    expect(response.status).toBe(200);
+    expect((await response.json()).assignedAccountStates).toEqual([]);
+  });
+
   it("starts metric upstreams and live Ad inventory while the independent decision date is still being read", async () => {
     vi.stubEnv("META_DECISIONS_UPSTREAM_TRANSPORT", "in_process");
     assignmentsMock.getProviderAccountAssignments.mockResolvedValue({

@@ -1,5 +1,5 @@
 {
-  "manifestHash": "6ccbba0fdd2dfd3257e16b4427a2b729e88bd54b3d7d8304417383202b53f2ad",
+  "manifestHash": "5c2b008c9f1b5cfb3e35c59bc1cc9de4a2a237418f4fe47afc84411a112795a6",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -328,11 +328,11 @@
     },
     {
       "path": "app/api/meta/decisions-workspace/route.test.ts",
-      "sha256": "28d73682fe38d021daf98532575f07272ae69f74f4b98c4d666c69597f9f1d42"
+      "sha256": "329e1f314ffffec5c2e0849539260a9776e48df1a4a6b53aaad5c9162a57fe4c"
     },
     {
       "path": "app/api/meta/decisions-workspace/route.ts",
-      "sha256": "d0d717a53c9c3e49afa1ac1fd1e85b99828bf588cc2b497289cf0f05abd66b91"
+      "sha256": "1a43e3933d2de52c44d9b95fab30b46ed03ca9d42b50eca7f14545f4bc3047bd"
     },
     {
       "path": "app/api/meta/entity-role-declarations/route.ts",
@@ -884,7 +884,7 @@
     },
     {
       "path": "docs/architecture/native-retained-reader-ledger.json",
-      "sha256": "162e2f7bff37d18141baac328ececd45d43e41a3d0e3eb0aee0445df3faf0afe"
+      "sha256": "dc00c7fafd97455d24825113ae72de63dd6ea72ab36be55cf573c37ea5b54b1f"
     },
     {
       "path": "docs/architecture/native-retained-reader-lifecycle.md",
@@ -928,7 +928,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "010287ea4e41feff02e8911692e7f1a83c8a3bc4547aa4929dbe95eae32ac677"
+      "sha256": "62d717b7747072971363c9d77c4b6525b3500b4724c796122491d2826aa0e957"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -940,7 +940,7 @@
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
-      "sha256": "f532bb9674fe4913c1f05252d636552d31f36afe2d3ce635a00b93246fc221bb"
+      "sha256": "38db3667435179d583c8d5c9f4e3eb3f24495ff133c83fa13edf936e0f80b75d"
     },
     {
       "path": "docs/creative-decision-center/V3_TO_V21_MAPPING.md",
@@ -1120,11 +1120,11 @@
     },
     {
       "path": "lib/business-deletion.db.test.ts",
-      "sha256": "e338df971b77cf22efc5fd19c8d450084d4bba134c57e9d9ae2e1737c8a4d431"
+      "sha256": "1422ee8e79e796380e56370ddf5604ab8e921573ee12881741524f6209bf13a9"
     },
     {
       "path": "lib/business-deletion.ts",
-      "sha256": "f89f14d2d27e03533fb577eff379e7a6e05f9975fa9089485ddf503a3b5ebe04"
+      "sha256": "00bcdc3884a6834c8321a8626b6df07ecdfc00343a5bc8e4c72fbf795d797f35"
     },
     {
       "path": "lib/client-auth-state.test.ts",
@@ -2444,11 +2444,11 @@
     },
     {
       "path": "lib/meta/decisions-workspace-read-model.test.ts",
-      "sha256": "dc2e22d17cbed68ee057e8607a49cb64172816d6a89cebfea16cea624926e055"
+      "sha256": "a4d2f0a19f1cc43ac50eaa81e92295a97984c955189dbe393d7c87988206e348"
     },
     {
       "path": "lib/meta/decisions-workspace-read-model.ts",
-      "sha256": "576d23574f06e58eeaeb2d3f6e699d50d52dfc614fac65136d7d6c1815cbf36d"
+      "sha256": "6ffd935db7684c1e52607aa1853285fd8c5eeff72b167b9257a853a11fcc4746"
     },
     {
       "path": "lib/meta/engine-v1/state-rows.test.ts",
@@ -3236,7 +3236,7 @@
     },
     {
       "path": "scripts/meta-status-api-readers-pg.ts",
-      "sha256": "e4cf26da7746f4a18247619e02b2e9df56f94198a1633b448100217f81257be1"
+      "sha256": "28c6fa92019b49f7cde10950d0e6c0d9b40c2ab0a9cacd3f009a3c74063ecb54"
     },
     {
       "path": "scripts/meta/certify-creative-day-config.ts",
@@ -3436,7 +3436,7 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/source-inventory.json",
-      "sha256": "524955b62d01089fbb1e979eb53e0a94a93c580d572711a23112446837fee51e"
+      "sha256": "a55d0fa132e86a8af95e43362069b8b4e873468ec8e589c8ecd4b2f8ea03bf51"
     },
     {
       "path": "scripts/native-cold-lifecycle/types.ts",
@@ -3632,7 +3632,7 @@
     },
     {
       "path": "scripts/ops/install-native-cold-runtime.py",
-      "sha256": "d0413d633252d9e56d79a69e4d5c3a53e4dba9756d424820f8f870bc3a127e0f"
+      "sha256": "e4ea24392a579232981bc4e7741b2383e7dc5060ba4b1102eb739698cd2e106c"
     },
     {
       "path": "scripts/ops/install-native-cold-runtime.test.ts",

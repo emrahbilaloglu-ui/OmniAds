@@ -4,6 +4,7 @@ import ts from "typescript";
 import type { Client } from "pg";
 import { getDb, runPinnedDbTransaction } from "../lib/db";
 import { getMetaAdSetDailyCoverage, getMetaBreakdownDailyCoverageByEndpoint } from "../lib/meta/warehouse";
+import { FENCED_TABLES, PHYSICAL_TELEMETRY_SOURCE } from "../lib/sync/db-growth-fence";
 
 /** Execute the actual route SQL, not a second implementation of its rules. */
 function routeSql(file: string, functionName: string) {
@@ -12,6 +13,7 @@ function routeSql(file: string, functionName: string) {
   function walk(node: ts.Node, inside = false) {
     inside ||= ts.isFunctionDeclaration(node) && node.name?.text === functionName;
     if (inside && ts.isNoSubstitutionTemplateLiteral(node) && node.text.includes("scoped_legacy_snapshots AS MATERIALIZED")) queries.push(node.text);
+    if (inside && functionName === "evaluateDbGrowthFence" && ts.isNoSubstitutionTemplateLiteral(node) && node.text.includes("latest_capacity AS")) queries.push(node.text);
     if (inside && ts.isTemplateExpression(node) && node.templateSpans.length === 1 &&
         node.templateSpans[0]!.expression.getText(source) === "input.tableName") {
       queries.push(node.head.text + "meta_adset_daily" + node.templateSpans[0]!.literal.text);
@@ -68,9 +70,11 @@ export async function verifyMetaStatusApiReadersPg(client: Client) {
   const coverageQueries = routeSql("lib/meta/warehouse.ts", "getMetaCoverageForTable");
   const breakdownQueries = routeSql("lib/meta/warehouse.ts", "getMetaBreakdownDailyCoverageByEndpoint");
   const anomalies = routeSql("app/api/meta/decisions-workspace/route.ts", "readDecisionDigest");
+  const capacity = routeSql("lib/sync/db-growth-fence.ts", "evaluateDbGrowthFence");
   assert.equal(dates.length, 2); assert.equal(pulse.length, 1); assert.equal(coverageQueries.length, 1);
   assert.equal(breakdownQueries.length, 1);
   assert.equal(anomalies.length, 1);
+  assert.equal(capacity.length, 1);
   await runPinnedDbTransaction({ client, timeoutMs: 8000, lockTimeoutMs: 1000, fn: async (db) => {
     await db.query("SET LOCAL TIME ZONE 'UTC'");
     await db.query(`CREATE TEMP TABLE engine_v3_decision_snapshots_daily(business_ref_id uuid,business_id text,creative_id text,as_of_date date) ON COMMIT DROP;
@@ -287,6 +291,23 @@ export async function verifyMetaStatusApiReadersPg(client: Client) {
     assert(!breakdownNodes.some((node) => node["Node Type"] === "Seq Scan" && node["Relation Name"] === "meta_breakdown_daily"));
     // Pinned calls above really used the same temporary fixture connection.
     assert.equal((await getDb().query("SELECT COUNT(*)::int n FROM meta_adset_daily WHERE business_id=$1", [business]))[0]!.n, 3);
+
+    // Count actual scalar evaluations in the production metadata statement.
+    // The wrapper only exists on this owned fixture; it returns the real size.
+    await db.query(`CREATE TEMP TABLE system_capacity_snapshots(id bigint,source text,sampled_at timestamptz,payload jsonb) ON COMMIT DROP;
+      CREATE TEMP SEQUENCE capacity_size_calls;
+      CREATE FUNCTION pg_temp.count_database_size(name) RETURNS bigint VOLATILE LANGUAGE plpgsql AS $$
+      BEGIN PERFORM nextval('pg_temp.capacity_size_calls'); RETURN pg_database_size($1); END $$`);
+    assert.equal(capacity[0]!.split("pg_database_size(current_database())").length, 2);
+    const countedSql = capacity[0]!.replace("pg_database_size(current_database())", "pg_temp.count_database_size(current_database())");
+    const measuredRows = await db.query(countedSql, [[...FENCED_TABLES], PHYSICAL_TELEMETRY_SOURCE]);
+    assert.equal(measuredRows.length, FENCED_TABLES.length);
+    assert.deepEqual(new Set(measuredRows.map((row) => row.table_name)), new Set(FENCED_TABLES));
+    assert.equal(new Set(measuredRows.map((row) => row.database_bytes)).size, 1);
+    assert.equal((await db.query("SELECT last_value::int n FROM pg_temp.capacity_size_calls"))[0]!.n, 1,
+      "the global database size must be measured once, not once for each fenced table");
+    assert(measuredRows.every((row) => row.capacity_id === null && row.capacity_payload === null),
+      "missing physical telemetry must remain missing in every metadata row");
   } });
   console.log("[meta-status-api-readers] PASS actual SQL: native/legacy competing-date bounds, ties, null/absent native dates, dual ownership, historical account ambiguity, ordered metadata index/backfills, indexed anomaly kind with null legacy/window/scope/owner parity, exact daily coverage, point breakdown witnesses/checkpoints/legacy raw, 761-day bounds and partition semantics");
 }

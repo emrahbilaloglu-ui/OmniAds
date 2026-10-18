@@ -697,11 +697,15 @@ export async function evaluateDbGrowthFence(input?: {
     // ONE statement. The logical sizes and the host's physical telemetry are
     // read together against one connection at one instant, so the two halves of
     // the decision can never describe different moments or different databases.
-    // `measured` is referenced twice, so PostgreSQL materialises it and
-    // clock_timestamp() is evaluated exactly once for the whole row set.
+    // Materialise the global size and clock once for the whole row set.
+    // A SELECT-list pg_database_size call would walk the same database files
+    // once per fenced table, although admission only consumes the first row.
     rows = (await sql.query(
       `
-      WITH measured AS (SELECT clock_timestamp() AS at),
+      WITH measured AS MATERIALIZED (
+        SELECT clock_timestamp() AS at,
+          pg_database_size(current_database())::bigint AS database_bytes
+      ),
       fenced AS (
         SELECT
           t.table_name,
@@ -719,7 +723,7 @@ export async function evaluateDbGrowthFence(input?: {
         LIMIT 1
       )
       SELECT
-        pg_database_size(current_database())::bigint AS database_bytes,
+        (SELECT database_bytes FROM measured) AS database_bytes,
         current_database() AS database_name,
         CASE
           WHEN to_regclass('public.meta_entity_state_history') IS NULL THEN NULL

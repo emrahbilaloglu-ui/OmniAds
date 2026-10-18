@@ -330,6 +330,10 @@ function buildMetaRetentionTableEvidence(
 
 async function readMetaStatus(request: NextRequest) {
   const requestStartedAt = performance.now();
+  const readTimings: string[] = [];
+  const completedRead = (name: string, startedAt: number) => {
+    readTimings.push(`${name};dur=${(performance.now() - startedAt).toFixed(1)}`);
+  };
   const url = new URL(request.url);
   const businessId = url.searchParams.get("businessId");
   const selectedStartDate = url.searchParams.get("startDate");
@@ -340,23 +344,33 @@ async function readMetaStatus(request: NextRequest) {
     buildId: runtimeContract.buildId,
     providerScope: "meta",
   });
+  const registrationStartedAt = performance.now();
   await upsertRuntimeContractInstance({
     contract: runtimeContract,
   }).catch(() => null);
+  completedRead("runtime_registration", registrationStartedAt);
 
+  const accessStartedAt = performance.now();
   const access = await requireBusinessAccess({ request, businessId });
+  completedRead("access", accessStartedAt);
   if ("error" in access) return access.error;
 
+  const postureStartedAt = performance.now();
   const posture = await readMetaBusinessDataPosture(businessId);
+  completedRead("posture", postureStartedAt);
   if (posture === "demo") {
     return NextResponse.json(getDemoMetaStatus(), { headers: { "Cache-Control": "no-store" } });
   }
   if (posture !== "live") return metaPostureUnavailable("meta_status");
   const buildResponse = async () => {
-  const admissionRead = readDbGrowthFenceObservation({ queryTimeoutMs: 5_000 }).catch(() => null);
+  const admissionStartedAt = performance.now();
+  const admissionRead = readDbGrowthFenceObservation({ queryTimeoutMs: 5_000 }).catch(() => null)
+    .finally(() => completedRead("admission_read", admissionStartedAt));
+  const contextStartedAt = performance.now();
   const integrationRead = getIntegrationMetadata(businessId!, "meta").catch(() => null);
   const assignmentsRead = getProviderAccountAssignments(businessId!, "meta").catch(() => null);
   const accountSnapshotRead = readProviderAccountSnapshot({ businessId: businessId!, provider: "meta" }).catch(() => null);
+  const operationsStartedAt = performance.now();
   const operationalReads = Promise.all([
       getLatestMetaSyncHealth({ businessId: businessId!, providerAccountId: null }).catch(() => null),
       getMetaAccountDailyStats({ businessId: businessId!, providerAccountId: null }).catch(() => null),
@@ -421,7 +435,7 @@ async function readMetaStatus(request: NextRequest) {
           value: null,
           error: error instanceof Error ? error.message : String(error),
         })),
-    ]);
+    ]).finally(() => completedRead("operational_reads", operationsStartedAt));
   // Observe early rejection; the original promise still owns the error below.
   void operationalReads.catch(() => undefined);
   const [integration, assignments, accountSnapshot] = await Promise.all([
@@ -440,19 +454,21 @@ async function readMetaStatus(request: NextRequest) {
     providerAccountIds: accountIds,
     snapshot: accountSnapshot,
   }).catch(() => []);
+  completedRead("account_context", contextStartedAt);
   // Start independent D1 verification while operational and coverage reads run.
   const primaryBoundary =
     platformDateBoundaryAccounts.find((account) => account.isPrimary) ??
     platformDateBoundaryAccounts[0] ??
     null;
   const d1TargetDate = primaryBoundary?.previousDate ?? null;
+  const d1StartedAt = performance.now();
   const d1VerificationPromise =
     primaryBoundary?.providerAccountId && d1TargetDate
       ? getMetaAuthoritativeDayVerification({
           businessId: businessId!,
           providerAccountId: primaryBoundary.providerAccountId,
           day: d1TargetDate,
-        }).catch(() => null)
+        }).catch(() => null).finally(() => completedRead("d1_verification", d1StartedAt))
       : null;
   const currentDateInTimezone = getTodayIsoForTimeZoneServer(primaryAccountTimezone);
 
@@ -497,6 +513,7 @@ async function readMetaStatus(request: NextRequest) {
   );
 
   // Coverage needs account/date context, not the independent operational batch.
+  const coverageStartedAt = performance.now();
   const [operationalResults, coverageResults] = await Promise.all([
     operationalReads,
     Promise.all([
@@ -587,7 +604,7 @@ async function readMetaStatus(request: NextRequest) {
           ...META_STATE_SCOPES.map((scope) =>
             getMetaSyncState({ businessId: businessId!, scope }).catch(() => [])
           ),
-    ]),
+    ]).finally(() => completedRead("coverage_reads", coverageStartedAt)),
   ]);
   const [
     latestSync,
@@ -2620,6 +2637,7 @@ async function readMetaStatus(request: NextRequest) {
   };
   };
 
+  const statusReadStartedAt = performance.now();
   const payload = shouldBypassMetaStatusCache()
     ? await buildResponse()
     : await readThroughCache({
@@ -2633,11 +2651,14 @@ async function readMetaStatus(request: NextRequest) {
         ttlMs: META_STATUS_CACHE_TTL_MS,
         loader: buildResponse,
       });
+  completedRead("status_read", statusReadStartedAt);
 
-  return NextResponse.json(payload, { headers: {
+  const response = NextResponse.json(payload, { headers: {
     "Cache-Control": "no-store",
-    "Server-Timing": `total;dur=${(performance.now() - requestStartedAt).toFixed(1)}`,
   } });
+  completedRead("total", requestStartedAt);
+  response.headers.set("Server-Timing", readTimings.join(", "));
+  return response;
 }
 
 // Keep the existing bounded read graph in one lease-local scope. Other requests

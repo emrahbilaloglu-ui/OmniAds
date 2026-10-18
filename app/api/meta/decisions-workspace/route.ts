@@ -1611,6 +1611,23 @@ async function readMetaDecisionsWorkspace(request: NextRequest) {
       now: requestEvaluatedAt,
     });
 
+  // Live inventory depends on the authorised account, not the retained
+  // decision date. Overlap its provider request with that independent read;
+  // canonical selection below still waits for BOTH results.
+  const currentAdsStartedAt = performance.now();
+  let currentAdsCompletedAt = currentAdsStartedAt;
+  const currentAdsPromise = readCurrentMetaAds({
+    fresh: freshAdPage || adCandidateOffset > 0,
+    businessId,
+    providerAccountId,
+  }).then((result) => {
+    currentAdsCompletedAt = performance.now();
+    return result;
+  });
+  // Observe an early rejection even if date resolution fails first. The
+  // original promise still rejects at the existing await/error handler.
+  void currentAdsPromise.catch(() => undefined);
+
   /**
    * The shell's date range scopes metrics only. It must never pin the current
    * decision inventory to the last metric day: the latest complete native
@@ -1934,15 +1951,6 @@ async function readMetaDecisionsWorkspace(request: NextRequest) {
           staleWhileRevalidateMs: 240_000,
           loader: loadCommercialAnchorProfile,
         }).then((cached) => cached.value);
-  let currentAdsCompletedAt = endDateResolvedAt;
-  const currentAdsPromise = readCurrentMetaAds({
-    fresh: freshAdPage || adCandidateOffset > 0,
-    businessId,
-    providerAccountId,
-  }).then((result) => {
-    currentAdsCompletedAt = performance.now();
-    return result;
-  });
   let decisionReadCompletedAt = endDateResolvedAt;
   const decisionReadPromise = currentAdsPromise.then(async (currentAds) => {
     const loadDecisionRead = () =>
@@ -2665,7 +2673,7 @@ async function readMetaDecisionsWorkspace(request: NextRequest) {
       resolveEndDateMs: endDateResolvedAt - requestStartedAt,
       upstreamsMs: upstreamsCompletedAt - endDateResolvedAt,
       upstreamReadMs: upstreams.finishedAt - upstreamsStartedAt,
-      currentAdsMs: currentAdsCompletedAt - endDateResolvedAt,
+      currentAdsMs: currentAdsCompletedAt - currentAdsStartedAt,
       decisionReadMs: decisionReadCompletedAt - endDateResolvedAt,
       decisionBundleMs: decisionBundleCompletedAt - upstreamsCompletedAt,
       responseBuildMs: responseReadyAt - decisionBundleCompletedAt,

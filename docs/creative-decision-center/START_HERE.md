@@ -2,6 +2,10 @@
 
 This is the first file future GPT/Codex/Claude chats should read before working on the Adsecute / OmniAds Creative page migration.
 
+For the independently started live inventory read and unresolved live acceptance, read
+[D185](DECISION_LOG.md#d185--start-live-ad-inventory-before-independent-decision-date-resolution-2026-10-18).
+Earlier failed samples remain evidence; overlap tests do not prove final latency.
+
 For the dominated legacy-date membership cost and its unchanged authority, read
 [D184](DECISION_LOG.md#d184--bound-legacy-date-membership-to-dates-that-can-affect-the-maximum-2026-10-18).
 Newer legacy dates and global historical account ambiguity stay preserved.

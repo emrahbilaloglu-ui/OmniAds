@@ -586,7 +586,7 @@ describe("GET /api/meta/decisions-workspace", () => {
     expect(response.status).toBe(200);
   });
 
-  it("starts metric upstreams while the independent decision date is still being read", async () => {
+  it("starts metric upstreams and live Ad inventory while the independent decision date is still being read", async () => {
     vi.stubEnv("META_DECISIONS_UPSTREAM_TRANSPORT", "in_process");
     assignmentsMock.getProviderAccountAssignments.mockResolvedValue({
       id: "assignment_1", business_id: "biz_1", provider: "meta",
@@ -630,7 +630,11 @@ describe("GET /api/meta/decisions-workspace", () => {
       await vi.waitFor(() => {
         expect(upstreamRouteMock.accountPulseGet).toHaveBeenCalledTimes(1);
         expect(upstreamRouteMock.laneClassificationGet).toHaveBeenCalledTimes(1);
+        expect(metaApiMock.fetchMetaActiveAdConfigsReceipt).toHaveBeenCalledWith(
+          "act_1", "test-token",
+        );
       });
+      expect(readModelMock.readMetaDecisionsWorkspaceReadModel).not.toHaveBeenCalled();
     } finally {
       releaseDate([{ latest_as_of: "2026-07-08" }]);
     }

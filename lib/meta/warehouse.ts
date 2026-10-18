@@ -7,6 +7,7 @@ import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
 import { META_PRODUCT_CORE_COVERAGE_SCOPES } from "@/lib/meta/core-config";
 import { getDb, getDbWithTimeout, runDbTransaction } from "@/lib/db";
 import { runWithDbJitDisabled } from "@/lib/db-jit-scope";
+import { observeMetaVerificationTimezones } from "@/lib/meta/verification-timezone-observation";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import {
   ensureProviderAccountReferenceBindings,
@@ -2977,7 +2978,10 @@ export async function getMetaPublishedVerificationSummary(input: {
     ],
     "meta_published_verification_summary",
   );
-  const sql = input.timeoutMs ? getDbWithTimeout(input.timeoutMs) : getDb();
+  const timeoutMs = input.timeoutMs;
+  const sql = timeoutMs ? getDbWithTimeout(timeoutMs) : getDb();
+  const timezoneBusinessId = input.businessId;
+  const timezoneAccountIds = [...providerAccountIds];
   const [
     latestSliceRows,
     latestManifestRows,
@@ -3170,14 +3174,17 @@ export async function getMetaPublishedVerificationSummary(input: {
       stale_leases: number | string | null;
       repair_backlog: number | string | null;
     }>,
-    sql`
+    observeMetaVerificationTimezones(
+      sql,
+      JSON.stringify(["published-verification-timezone-v1", timezoneBusinessId, timezoneAccountIds, timeoutMs ?? null]),
+      async () => sql`
       WITH manifest_accounts AS (
         SELECT DISTINCT ON (provider_account_id)
           provider_account_id,
           COALESCE(NULLIF(account_timezone, ''), 'UTC') AS account_timezone
         FROM meta_authoritative_source_manifests
-        WHERE business_id = ${input.businessId}
-          AND provider_account_id = ANY(${providerAccountIds}::text[])
+        WHERE business_id = ${timezoneBusinessId}
+          AND provider_account_id = ANY(${timezoneAccountIds}::text[])
         ORDER BY provider_account_id, updated_at DESC
       ),
       warehouse_accounts AS (
@@ -3185,8 +3192,8 @@ export async function getMetaPublishedVerificationSummary(input: {
           provider_account_id,
           COALESCE(NULLIF(account_timezone, ''), 'UTC') AS account_timezone
         FROM meta_account_daily
-        WHERE business_id = ${input.businessId}
-          AND provider_account_id = ANY(${providerAccountIds}::text[])
+        WHERE business_id = ${timezoneBusinessId}
+          AND provider_account_id = ANY(${timezoneAccountIds}::text[])
         ORDER BY provider_account_id, date DESC, updated_at DESC
       )
       SELECT
@@ -3200,6 +3207,7 @@ export async function getMetaPublishedVerificationSummary(input: {
       provider_account_id: string;
       account_timezone: string;
     }>,
+    ),
   ]);
   const accountTimeZoneById = new Map(
     accountTimezoneRows.map((row) => [

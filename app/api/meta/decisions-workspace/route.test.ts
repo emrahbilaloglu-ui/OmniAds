@@ -780,6 +780,14 @@ describe("GET /api/meta/decisions-workspace", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
+    const ordinaryRead = readModelMock.readMetaDecisionsWorkspaceReadModel.getMockImplementation()!;
+    readModelMock.readMetaDecisionsWorkspaceReadModel.mockImplementationOnce(async (input) => {
+      input.onReadTiming("native_projection", 17.25);
+      input.onReadTiming("native_events", Number.NaN);
+      input.onReadTiming("native_outcomes", -1);
+      input.onReadTiming("native_bad,header", 1);
+      return ordinaryRead(input);
+    });
     const response = await GET(
       new NextRequest(
         "http://localhost/api/meta/decisions-workspace?businessId=biz_1&providerAccountId=act_1&adLimit=120",
@@ -795,6 +803,7 @@ describe("GET /api/meta/decisions-workspace", () => {
     expect(
       readModelMock.readMetaDecisionsWorkspaceReadModel,
     ).toHaveBeenCalledWith({
+      onReadTiming: expect.any(Function),
       businessId: "biz_1",
       providerAccountId: "act_1",
       adCandidateLimit: 120,
@@ -806,6 +815,9 @@ describe("GET /api/meta/decisions-workspace", () => {
       adIds: undefined,
       allowMissingProjectedAdIds: false,
     });
+    expect(response.headers.get("server-timing")).toContain("native_projection;dur=17.3");
+    expect(response.headers.get("server-timing")).not.toMatch(/NaN|native_events|native_outcomes|header/);
+    expect(payload).not.toHaveProperty("nativeReadTimings");
     expect(payload.decisionReadModel).toMatchObject({
       status: "available",
       scope: { businessId: "biz_1", providerAccountId: "act_1" },

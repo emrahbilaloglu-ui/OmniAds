@@ -2723,7 +2723,40 @@ export type MetaValidatedNativeDecisionGenerationBundle =
       validationIssue: MetaNativeGenerationValidationIssue | null;
     };
 
+export type MetaNativeDecisionReadPhase =
+  | "native_generation" | "native_manifest" | "native_projection"
+  | "native_model" | "native_ancillary" | "native_campaign_context" | "native_events"
+  | "native_outcomes" | "native_responses" | "native_adset_roles";
+
+export type MetaNativeDecisionReadObserver = (
+  phase: MetaNativeDecisionReadPhase,
+  durationMs: number,
+) => void | Promise<void>;
+
+// Optional serving diagnostics. Never a decision input or a query deadline.
+async function observeNativeDecisionRead<T>(
+  observer: MetaNativeDecisionReadObserver | undefined,
+  phase: MetaNativeDecisionReadPhase,
+  read: () => Promise<T> | T,
+): Promise<T> {
+  if (!observer) return read();
+  const startedAt = performance.now();
+  try {
+    return await read();
+  } finally {
+    try {
+      // Do not await a sink: diagnostics cannot extend the read's deadline.
+      void Promise.resolve(observer(phase, performance.now() - startedAt))
+        .catch(() => undefined);
+    } catch {
+      // A diagnostic sink cannot turn a valid decision into a refusal.
+    }
+  }
+}
+
 export interface ReadValidatedMetaNativeDecisionGenerationBundleInput {
+  /** Internal scalar timings only; never changes evidence or authority. */
+  onReadTiming?: MetaNativeDecisionReadObserver;
   businessId: string;
   providerAccountId: string;
   asOfDate?: string;
@@ -5110,7 +5143,11 @@ type MetaValidatedNativeDecisionSubset =
 async function readValidatedMetaNativeDecisionSubset(
   input: ReadValidatedMetaNativeDecisionGenerationBundleInput,
 ): Promise<MetaValidatedNativeDecisionSubset> {
-  const generationRead = await readNativeGeneration(input);
+  const generationRead = await observeNativeDecisionRead(
+    input.onReadTiming,
+    "native_generation",
+    () => readNativeGeneration(input),
+  );
   // Same rule as the full-account reader: a degraded generation is still proven
   // complete below (manifest ad ids, then the shared bundle validator). Only its
   // AUTHORITY differs, and that is the caller's job to strip.
@@ -5132,11 +5169,15 @@ async function readValidatedMetaNativeDecisionSubset(
       : reason,
   });
   if (!fullGeneration) return refuse(generationRead.fallbackReason);
-  const manifestRows = await readNativeSnapshotManifestAdIds({
-    businessId: input.businessId,
-    providerAccountId: input.providerAccountId,
-    generation: fullGeneration,
-  });
+  const manifestRows = await observeNativeDecisionRead(
+    input.onReadTiming,
+    "native_manifest",
+    () => readNativeSnapshotManifestAdIds({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      generation: fullGeneration,
+    }),
+  );
   if (
     !nativeSnapshotManifestIsComplete({
       businessId: input.businessId,
@@ -5147,13 +5188,17 @@ async function readValidatedMetaNativeDecisionSubset(
   ) {
     return refuse("native_generation_lineage_or_manifest_invalid");
   }
-  const storedSnapshotRows = await readNativeSnapshotRows({
-    businessId: input.businessId,
-    providerAccountId: input.providerAccountId,
-    generation: fullGeneration,
-    creativeIds: input.creativeIds,
-    adIds: input.adIds,
-  });
+  const storedSnapshotRows = await observeNativeDecisionRead(
+    input.onReadTiming,
+    "native_projection",
+    () => readNativeSnapshotRows({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      generation: fullGeneration,
+      creativeIds: input.creativeIds,
+      adIds: input.adIds,
+    }),
+  );
   if (input.adIds !== undefined) {
     const requestedAdIds = [
       ...new Set(input.adIds.map((value) => value.trim()).filter(Boolean)),
@@ -5228,7 +5273,11 @@ export async function readValidatedMetaNativeDecisionGenerationBundle(
   input: ReadValidatedMetaNativeDecisionGenerationBundleInput,
 ): Promise<MetaValidatedNativeDecisionGenerationBundle> {
   try {
-    const generationRead = await readNativeGeneration(input);
+    const generationRead = await observeNativeDecisionRead(
+      input.onReadTiming,
+      "native_generation",
+      () => readNativeGeneration(input),
+    );
     // The degraded generation goes through the SAME manifest/lineage validator
     // as the authoritative one. A last good generation that cannot prove itself
     // complete is not served at all -- it degrades to the existing fail-closed
@@ -5240,11 +5289,15 @@ export async function readValidatedMetaNativeDecisionGenerationBundle(
         reason: generationRead.fallbackReason,
       });
     }
-    const storedSnapshotRows = await readNativeSnapshotRows({
-      businessId: input.businessId,
-      providerAccountId: input.providerAccountId,
-      generation,
-    });
+    const storedSnapshotRows = await observeNativeDecisionRead(
+      input.onReadTiming,
+      "native_projection",
+      () => readNativeSnapshotRows({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        generation,
+      }),
+    );
     const snapshotRows = reconcileNativeSnapshotRowsWithCurrentAds({
       snapshotRows: storedSnapshotRows,
       currentAds: input.currentAds ?? [],
@@ -5438,6 +5491,7 @@ interface MetaNativeDecisionAncillaryRows {
 async function readNativeDecisionAncillaryRows(input: {
   businessId: string;
   providerAccountId: string;
+  onReadTiming?: MetaNativeDecisionReadObserver;
   bundle: Extract<
     MetaValidatedNativeDecisionGenerationBundle,
     { status: "available" }
@@ -5454,31 +5508,47 @@ async function readNativeDecisionAncillaryRows(input: {
   ];
   const [contextResult, eventResult, outcomeResult, responseResult] =
     await Promise.allSettled([
-      readMetaDecisionCampaignContextRows({
-        businessId: input.businessId,
-        providerAccountId: input.providerAccountId,
-        campaignIds,
-        snapshotAsOf: input.bundle.generation.asOfDate,
-        declarationKnowledgeJobRunId: input.bundle.generation.jobRunId,
-      }),
-      readNativeEventRows({
-        businessId: input.businessId,
-        providerAccountId: input.providerAccountId,
-        providerAccountRefId: input.bundle.generation.providerAccountRefId,
-        adIds,
-      }),
-      readNativeOutcomeRows({
-        businessId: input.businessId,
-        providerAccountId: input.providerAccountId,
-        providerAccountRefId: input.bundle.generation.providerAccountRefId,
-        snapshotIds,
-      }),
-      readNativeResponseRows({
-        businessId: input.businessId,
-        providerAccountId: input.providerAccountId,
-        providerAccountRefId: input.bundle.generation.providerAccountRefId,
-        snapshotIds,
-      }),
+      observeNativeDecisionRead(
+        input.onReadTiming,
+        "native_campaign_context",
+        () => readMetaDecisionCampaignContextRows({
+          businessId: input.businessId,
+          providerAccountId: input.providerAccountId,
+          campaignIds,
+          snapshotAsOf: input.bundle.generation.asOfDate,
+          declarationKnowledgeJobRunId: input.bundle.generation.jobRunId,
+        }),
+      ),
+      observeNativeDecisionRead(
+        input.onReadTiming,
+        "native_events",
+        () => readNativeEventRows({
+          businessId: input.businessId,
+          providerAccountId: input.providerAccountId,
+          providerAccountRefId: input.bundle.generation.providerAccountRefId,
+          adIds,
+        }),
+      ),
+      observeNativeDecisionRead(
+        input.onReadTiming,
+        "native_outcomes",
+        () => readNativeOutcomeRows({
+          businessId: input.businessId,
+          providerAccountId: input.providerAccountId,
+          providerAccountRefId: input.bundle.generation.providerAccountRefId,
+          snapshotIds,
+        }),
+      ),
+      observeNativeDecisionRead(
+        input.onReadTiming,
+        "native_responses",
+        () => readNativeResponseRows({
+          businessId: input.businessId,
+          providerAccountId: input.providerAccountId,
+          providerAccountRefId: input.bundle.generation.providerAccountRefId,
+          snapshotIds,
+        }),
+      ),
     ]);
   const campaignContextRows =
     contextResult.status === "fulfilled" ? contextResult.value : [];
@@ -5491,14 +5561,18 @@ async function readNativeDecisionAncillaryRows(input: {
   for (const row of input.bundle.snapshotRows) {
     if (row.adset_id) adsets.set(row.adset_id, row.campaign_id ?? null);
   }
-  const adsetRoleRows = await readMetaDecisionAdsetRoleRows({
-    businessId: input.businessId,
-    providerAccountId: input.providerAccountId,
-    adsets: [...adsets].map(([adsetId, campaignId]) => ({ adsetId, campaignId })),
-    snapshotAsOf: input.bundle.generation.asOfDate,
-    campaignRows: campaignContextRows,
-    declarationKnowledgeJobRunId: input.bundle.generation.jobRunId,
-  }).catch(() => [] as MetaDecisionCampaignContextSourceRow[]);
+  const adsetRoleRows = await observeNativeDecisionRead(
+    input.onReadTiming,
+    "native_adset_roles",
+    () => readMetaDecisionAdsetRoleRows({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      adsets: [...adsets].map(([adsetId, campaignId]) => ({ adsetId, campaignId })),
+      snapshotAsOf: input.bundle.generation.asOfDate,
+      campaignRows: campaignContextRows,
+      declarationKnowledgeJobRunId: input.bundle.generation.jobRunId,
+    }),
+  ).catch(() => [] as MetaDecisionCampaignContextSourceRow[]);
   return {
     campaignContextRows,
     adsetRoleRows,
@@ -6409,6 +6483,7 @@ async function readOutcomeRows(snapshotIds: string[]) {
 }
 
 export async function readMetaDecisionsWorkspaceReadModel(input: {
+  onReadTiming?: MetaNativeDecisionReadObserver;
   businessId: string;
   providerAccountId: string;
   asOfDate?: string;
@@ -6448,23 +6523,32 @@ export async function readMetaDecisionsWorkspaceReadModel(input: {
       unavailable.source.fallbackReason = subsetRead.unavailableReason;
       return unavailable;
     }
-    const ancillary = await readNativeDecisionAncillaryRows({
-      businessId: input.businessId,
-      providerAccountId: input.providerAccountId,
-      bundle: subsetRead.bundle,
-    });
-    const model = buildNativeMetaDecisionsWorkspaceReadModel({
-      businessId: input.businessId,
-      providerAccountId: input.providerAccountId,
-      generation: subsetRead.bundle.generation,
-      snapshotRows: [...subsetRead.bundle.snapshotRows],
-      sourceDegradation: subsetRead.sourceDegradation,
-      ...ancillary,
-      generatedAt: input.generatedAt,
-      sectionLimit: input.sectionLimit,
-      adCandidateLimit: input.adCandidateLimit,
-      adCandidateOffset: input.adCandidateOffset,
-    });
+    const ancillary = await observeNativeDecisionRead(
+      input.onReadTiming,
+      "native_ancillary",
+      () => readNativeDecisionAncillaryRows({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        onReadTiming: input.onReadTiming,
+        bundle: subsetRead.bundle,
+      }),
+    );
+    const model = await observeNativeDecisionRead(
+      input.onReadTiming,
+      "native_model",
+      () => buildNativeMetaDecisionsWorkspaceReadModel({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        generation: subsetRead.bundle.generation,
+        snapshotRows: [...subsetRead.bundle.snapshotRows],
+        sourceDegradation: subsetRead.sourceDegradation,
+        ...ancillary,
+        generatedAt: input.generatedAt,
+        sectionLimit: input.sectionLimit,
+        adCandidateLimit: input.adCandidateLimit,
+        adCandidateOffset: input.adCandidateOffset,
+      }),
+    );
     if (model.source.generation) {
       model.source.generation = {
         jobRunId: subsetRead.fullGeneration.jobRunId,
@@ -6479,23 +6563,32 @@ export async function readMetaDecisionsWorkspaceReadModel(input: {
     await readValidatedMetaNativeDecisionGenerationBundle(nativeReadInput);
   if (nativeBundle.status === "available") {
     try {
-      const ancillary = await readNativeDecisionAncillaryRows({
-        businessId: input.businessId,
-        providerAccountId: input.providerAccountId,
-        bundle: nativeBundle,
-      });
-      return buildNativeMetaDecisionsWorkspaceReadModel({
-        businessId: input.businessId,
-        providerAccountId: input.providerAccountId,
-        generation: nativeBundle.generation,
-        snapshotRows: nativeBundle.snapshotRows,
-        sourceDegradation: nativeBundle.sourceDegradation,
-        ...ancillary,
-        generatedAt: input.generatedAt,
-        sectionLimit: input.sectionLimit,
-        adCandidateLimit: input.adCandidateLimit,
-        adCandidateOffset: input.adCandidateOffset,
-      });
+      const ancillary = await observeNativeDecisionRead(
+        input.onReadTiming,
+        "native_ancillary",
+        () => readNativeDecisionAncillaryRows({
+          businessId: input.businessId,
+          providerAccountId: input.providerAccountId,
+          onReadTiming: input.onReadTiming,
+          bundle: nativeBundle,
+        }),
+      );
+      return await observeNativeDecisionRead(
+        input.onReadTiming,
+        "native_model",
+        () => buildNativeMetaDecisionsWorkspaceReadModel({
+          businessId: input.businessId,
+          providerAccountId: input.providerAccountId,
+          generation: nativeBundle.generation,
+          snapshotRows: nativeBundle.snapshotRows,
+          sourceDegradation: nativeBundle.sourceDegradation,
+          ...ancillary,
+          generatedAt: input.generatedAt,
+          sectionLimit: input.sectionLimit,
+          adCandidateLimit: input.adCandidateLimit,
+          adCandidateOffset: input.adCandidateOffset,
+        }),
+      );
     } catch {
       // Fall through to legacy. The reason is named below, once.
     }

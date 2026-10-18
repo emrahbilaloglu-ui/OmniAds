@@ -26,9 +26,12 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { runInNewContext } from "node:vm";
+import ts from "typescript";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 /** Never the local volume, never the production tunnel. */
@@ -238,6 +241,30 @@ describe.skipIf(PG_BIN === null)(
       expect(scoped.jit).toBe("off");
       expect(after.pid).toBe(scoped.pid);
       expect(after.jit).toBe("on");
+    });
+
+    it("honours a separately compiled scope on the already cached real executor", async () => {
+      const source = fs.readFileSync(path.join(process.cwd(), "lib/db-jit-scope.ts"), "utf8");
+      const compiled = ts.transpileModule(source, {
+        compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+      }).outputText;
+      const exports = {};
+      runInNewContext(compiled, {
+        exports,
+        require: createRequire(import.meta.url),
+        globalThis,
+      }, { timeout: 1_000 });
+      const otherCopy = exports as typeof jitScope;
+      const cached = db.getDb();
+      const before = await setting(cached);
+      const scoped = await otherCopy.runWithDbJitDisabled(() => setting(cached));
+      const after = await setting(cached);
+      expect(scoped.jit).toBe("off");
+      expect(scoped.pid).toBe(before.pid);
+      expect(after.pid).toBe(before.pid);
+      expect(after.jit).toBe("on");
+      expect(jitScope.isDbJitDisabledInScope()).toBe(false);
+      expect(otherCopy.isDbJitDisabledInScope()).toBe(false);
     });
 
     it("scopes a read inside an outer transaction, across a savepoint rollback, and ends with it", async () => {

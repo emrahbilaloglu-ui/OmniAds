@@ -585,6 +585,58 @@ describe("GET /api/meta/decisions-workspace", () => {
     expect(response.status).toBe(200);
   });
 
+  it("starts metric upstreams while the independent decision date is still being read", async () => {
+    vi.stubEnv("META_DECISIONS_UPSTREAM_TRANSPORT", "in_process");
+    assignmentsMock.getProviderAccountAssignments.mockResolvedValue({
+      id: "assignment_1", business_id: "biz_1", provider: "meta",
+      account_ids: ["act_1"], created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-07-01T00:00:00.000Z",
+    });
+    metaApiMock.resolveMetaCredentials.mockResolvedValue({
+      businessId: "biz_1", accessToken: "test-token", accountIds: ["act_1"],
+      currency: "USD", accountProfiles: {},
+    });
+    metaApiMock.fetchMetaActiveAdConfigsReceipt.mockResolvedValue({
+      complete: true, termination: "complete", rows: [],
+    });
+    upstreamRouteMock.accountPulseGet.mockResolvedValue(jsonResponse(metaPulse()));
+    upstreamRouteMock.laneClassificationGet.mockResolvedValue(jsonResponse(metaLanePayload()));
+    let releaseDate!: (rows: Array<{ latest_as_of: string }>) => void;
+    let dateStarted!: () => void;
+    const pendingDate = new Promise<Array<{ latest_as_of: string }>>((resolve) => { releaseDate = resolve; });
+    const started = new Promise<void>((resolve) => { dateStarted = resolve; });
+    const sql = mockDigestSql();
+    Object.assign(sql, { query: vi.fn(async (query: string) => {
+      if (query.includes("candidate_dates AS")) {
+        dateStarted();
+        return pendingDate;
+      }
+      return [];
+    }) });
+    const responsePending = GET(new NextRequest(
+      "http://localhost/api/meta/decisions-workspace?businessId=biz_1&providerAccountId=act_1&surface=os&startDate=2026-07-01&endDate=2026-07-07&window=7d",
+    ));
+    await started;
+    try {
+      await vi.waitFor(() => {
+        expect(upstreamRouteMock.accountPulseGet).toHaveBeenCalledTimes(1);
+        expect(upstreamRouteMock.laneClassificationGet).toHaveBeenCalledTimes(1);
+      });
+    } finally {
+      releaseDate([{ latest_as_of: "2026-07-08" }]);
+    }
+    const response = await responsePending;
+    expect(response.status).toBe(200);
+    expect(readModelMock.readMetaDecisionsWorkspaceReadModel).toHaveBeenCalledWith(
+      expect.objectContaining({ asOfDate: "2026-07-08" }),
+    );
+    for (const mock of [upstreamRouteMock.accountPulseGet, upstreamRouteMock.laneClassificationGet]) {
+      const request = mock.mock.calls[0][0] as NextRequest;
+      expect(request.nextUrl.searchParams.get("startDate")).toBe("2026-07-01");
+      expect(request.nextUrl.searchParams.get("endDate")).toBe("2026-07-07");
+    }
+  });
+
   it("keeps the canonical read model unavailable until providerAccountId is explicit", async () => {
     const pulse = metaPulse();
     const lanes = metaLanePayload();

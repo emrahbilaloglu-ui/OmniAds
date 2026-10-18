@@ -2,6 +2,10 @@
 
 This is the first file future GPT/Codex/Claude chats should read before working on the Adsecute / OmniAds Creative page migration.
 
+For the actual cross-bundle JIT-scope loss and overlapping independent metric
+reads, read [D182](DECISION_LOG.md#d182--share-request-jit-scope-across-route-bundles-and-overlap-independent-reads-2026-10-18).
+Passing source profiles do not replace public latency or new-generation proof.
+
 For the follow-up status/workspace read costs, ordered legacy metadata index,
 and read-only capacity observations, read
 [D181](DECISION_LOG.md#d181--finish-status-and-workspace-read-costs-with-original-evidence-semantics-2026-10-18).

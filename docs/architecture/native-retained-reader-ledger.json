@@ -239,8 +239,8 @@
     {
       "path": "lib/sync/db-growth-fence.ts",
       "role": "storage-and-pin-reader",
-      "sha256": "1bdb5ed561bde12e4282bba76c2a1f8018fd6a8c9af47bf38e9614240b29bbcb",
-      "retention": "D170 reads only native MAIN relation allocation and pgstattuple_approx free-space metadata for aggregate admission; no evaluation rows, generation selection, pins, source removal or provider authority. Preserve all retained history and independent physical/table limits. D174 caps only credited proven MAIN-free bytes by actual physical spare minus512MiB while reporting full proven/uncredited amounts; the unchanged raw-first physical floor and full credited headroom projection still apply. No budget increase, dead/TOAST/index credit or history removal. D178 changes raw-payload projections to the exact same-business/account original decoder and adds deferred raw-owner pins. Native retained lineage, snapshot authority, hashes and clocks are unchanged; new owned PG verifies original bytes and whole-business erasure. D181 adds only a separate 15-second read observation/inflight cache with original clock/physical expiry; all fresh writer gates and native retained source accounting remain unchanged."
+      "sha256": "9d2d632b2e2a4fe2908ab6beb8930071688aa57bc861699a1c0a6b038d8358cf",
+      "retention": "D170 reads only native MAIN relation allocation and pgstattuple_approx free-space metadata for aggregate admission; no evaluation rows, generation selection, pins, source removal or provider authority. Preserve all retained history and independent physical/table limits. D174 caps only credited proven MAIN-free bytes by actual physical spare minus512MiB while reporting full proven/uncredited amounts; the unchanged raw-first physical floor and full credited headroom projection still apply. No budget increase, dead/TOAST/index credit or history removal. D178 changes raw-payload projections to the exact same-business/account original decoder and adds deferred raw-owner pins. Native retained lineage, snapshot authority, hashes and clocks are unchanged; new owned PG verifies original bytes and whole-business erasure. D181 adds only a separate 15-second read observation/inflight cache with original clock/physical expiry; all fresh writer gates and native retained source accounting remain unchanged. D187 materialises the original global database size once per metadata statement; all capacity arithmetic/proofs/budgets/physical floors and native/raw/current/history authority remain unchanged. Owned-only actual-SQL counter verifies20-to1 evaluations and missing telemetry; status timings expose request work only."
     },
     {
       "path": "lib/sync/native-reusable-heap.ts",
@@ -371,8 +371,8 @@
     {
       "path": "scripts/meta-status-api-readers-pg.ts",
       "role": "owned-fixture",
-      "sha256": "5fbd10c156a486c307dc16783b849151c04af52a7e7c6b4e0e9b43054668559d",
-      "retention": "D180 actual route SQL and production coverage on owned loopback PostgreSQL temporary fixtures only. No production writes, retained source removal, clock rewrite or execution authority. D181 additionally executes the actual metadata migration index shape and exact breakdown fact/checkpoint/unlinked-raw witness semantics on owned TEMP fixtures only. D184 owned-only fixture executes the real bounded primary date SQL and unchanged legacy fallback, adding ties/newer dates/null native/dual ownership/all-history ambiguity and20000dominated-row index bounds. No production mutation or retention authority. D186 extends only owned PostgreSQL proof of the actual anomaly SQL: existing kind index, NULL legacy exclusion, tenant/scope/window/open/resolved equality and same-business decoys; no production mutation."
+      "sha256": "5ca088a1f0f76e0fc26c078dc28ec942c3d484aee5ee0b32a0f918a0f247041d",
+      "retention": "D180 actual route SQL and production coverage on owned loopback PostgreSQL temporary fixtures only. No production writes, retained source removal, clock rewrite or execution authority. D181 additionally executes the actual metadata migration index shape and exact breakdown fact/checkpoint/unlinked-raw witness semantics on owned TEMP fixtures only. D184 owned-only fixture executes the real bounded primary date SQL and unchanged legacy fallback, adding ties/newer dates/null native/dual ownership/all-history ambiguity and20000dominated-row index bounds. No production mutation or retention authority. D186 extends only owned PostgreSQL proof of the actual anomaly SQL: existing kind index, NULL legacy exclusion, tenant/scope/window/open/resolved equality and same-business decoys; no production mutation. D187 materialises the original global database size once per metadata statement; all capacity arithmetic/proofs/budgets/physical floors and native/raw/current/history authority remain unchanged. Owned-only actual-SQL counter verifies20-to1 evaluations and missing telemetry; status timings expose request work only."
     },
     {
       "path": "scripts/native-archive-pin-census-seam.ts",
@@ -507,5 +507,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "c80915e4a17898b7e1cb2db2fda7677742b97af7beaee11ae4f42ef4c15839a0"
+  "sourceInventorySha256": "f29985997796c016cfe03ac497c9629ff8ba80f4351d77a0386aa0051e53976d"
 }

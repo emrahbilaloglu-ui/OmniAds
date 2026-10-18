@@ -312,7 +312,14 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
       const before = await foreign();
       const {rows:[ref]} = await db.query("SELECT to_regclass('public.idx_engine_v3_ad_evaluations_contract_input') AS present");
       if(!ref.present) { await addObservedProductionReferenceIndex(db); addedReference=true; }
-      await deleteBusinessWithData(target.business);
+      try {
+        await deleteBusinessWithData(target.business);
+      } catch (error) {
+        if (error instanceof BusinessDeletionError) {
+          throw new Error(`Owned binding erasure refused: code=${error.code}; tables=${error.tables.join(",")}`, { cause: error });
+        }
+        throw error;
+      }
       expect(await remains(target.business)).toBe(false);
       for (const table of ["meta_creative_lineage_edges","meta_entity_observation_runs"]) {
         expect(await remains(target.business,table,"business_id")).toBe(false);

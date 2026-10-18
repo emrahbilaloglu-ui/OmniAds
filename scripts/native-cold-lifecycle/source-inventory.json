@@ -43,8 +43,8 @@
     },
     {
       "path": "app/api/meta/status/route.ts",
-      "sha256": "afccba752c795e2e446acb1df9f8cb7adae4e0dd58d61c7acb66c143244ae54c",
-      "bytes": 111273
+      "sha256": "93cfd9df964c5f5a6e140f434d4934cd0996e4081c5e7ccc74505f93652fd1ce",
+      "bytes": 112464
     },
     {
       "path": "docker-compose.yml",
@@ -383,8 +383,8 @@
     },
     {
       "path": "lib/sync/db-growth-fence.ts",
-      "sha256": "1bdb5ed561bde12e4282bba76c2a1f8018fd6a8c9af47bf38e9614240b29bbcb",
-      "bytes": 58105
+      "sha256": "9d2d632b2e2a4fe2908ab6beb8930071688aa57bc861699a1c0a6b038d8358cf",
+      "bytes": 58283
     },
     {
       "path": "lib/sync/global-kill-switch.ts",
@@ -553,8 +553,8 @@
     },
     {
       "path": "scripts/meta-status-api-readers-pg.ts",
-      "sha256": "5fbd10c156a486c307dc16783b849151c04af52a7e7c6b4e0e9b43054668559d",
-      "bytes": 23613
+      "sha256": "5ca088a1f0f76e0fc26c078dc28ec942c3d484aee5ee0b32a0f918a0f247041d",
+      "bytes": 25482
     },
     {
       "path": "scripts/meta/creative-day-source-evidence-repair.ts",
@@ -837,5 +837,5 @@
       "bytes": 4644
     }
   ],
-  "sourceInventorySha256": "09459e160dfe4d798bc64cccbebd139857e853f57c6d67eb9c5cc9163b1abdcd"
+  "sourceInventorySha256": "23d6943c836c17a85e9b1c13ddb2f9d951a6134b1bfbee47e2936b7640b6ee83"
 }

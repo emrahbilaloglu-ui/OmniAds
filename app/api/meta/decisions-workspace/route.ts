@@ -1,3 +1,4 @@
+import { runWithDbJitDisabled } from "@/lib/db-jit-scope";
 import { reportingDayCount } from "@/lib/meta/reporting-period";
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
@@ -1474,7 +1475,7 @@ function collectCanonicalAuthorityBlockers(
   return blockers;
 }
 
-export async function GET(request: NextRequest) {
+async function readMetaDecisionsWorkspace(request: NextRequest) {
   const requestStartedAt = performance.now();
   const requestEvaluatedAt = new Date();
   const requestGeneratedAt = requestEvaluatedAt.toISOString();
@@ -2752,4 +2753,10 @@ export async function GET(request: NextRequest) {
       { status: 500 },
     );
   }
+}
+
+// Keep the existing bounded read graph in one lease-local scope. Other requests
+// retain their database setting; original queries and authority checks are unchanged.
+export async function GET(request: NextRequest) {
+  return runWithDbJitDisabled(() => readMetaDecisionsWorkspace(request));
 }

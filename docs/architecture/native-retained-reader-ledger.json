@@ -23,8 +23,8 @@
     {
       "path": "app/api/meta/decisions-workspace/route.ts",
       "role": "serving-and-history",
-      "sha256": "62024823b84ec8fae4a18a047e0ed0a0530431819ad4b738233a3158e0e354b9",
-      "retention": "Keep every retained snapshot and its complete evaluation/context lineage across all dates, epochs and current winners; latest/episode/history/freshness access remains available. D180 bounds date lookup to retained IDs with exact canonical UUID/text business ownership before the unchanged cross-account ambiguity exclusion and native/legacy/job maximum date. All retained rows remain; contradictory ownership cannot set a current date. No native generation selection, hash, epoch or provider authority change. D182 starts the same authorised metric upstream reads alongside independent retained decision-date resolution, preserving exact metric params/cache keys, account/current-Ad/generation/role/commercial/governance checks and failure responses. Native SQL, generation date/identity, hashes, epochs and historical authority are unchanged."
+      "sha256": "20182e075c6ebd68ae113fced8602cd45ca52c83e87c4340733070034f385da5",
+      "retention": "Keep every retained snapshot and its complete evaluation/context lineage across all dates, epochs and current winners; latest/episode/history/freshness access remains available. D180 bounds date lookup to retained IDs with exact canonical UUID/text business ownership before the unchanged cross-account ambiguity exclusion and native/legacy/job maximum date. All retained rows remain; contradictory ownership cannot set a current date. No native generation selection, hash, epoch or provider authority change. D182 starts the same authorised metric upstream reads alongside independent retained decision-date resolution, preserving exact metric params/cache keys, account/current-Ad/generation/role/commercial/governance checks and failure responses. Native SQL, generation date/identity, hashes, epochs and historical authority are unchanged. D183 wraps the unchanged bounded GET graph in the existing request-local JIT scope. All queries, original lineage, account/date checks, hashes, complete manifests and historical/current authority remain unchanged."
     },
     {
       "path": "lib/business-archive-erasure.ts",
@@ -507,5 +507,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "0ccd6e6b7fb6da91a4f12cbacecefb9312c768fa0a33948118efca8405c9032c"
+  "sourceInventorySha256": "35933913b25ae882bfab2a5d62c4954600332b591d483d629ff05afdf2f1a688"
 }

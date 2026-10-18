@@ -2,6 +2,10 @@
 
 This is the first file future GPT/Codex/Claude chats should read before working on the Adsecute / OmniAds Creative page migration.
 
+For the complete bounded GET read scopes and remaining live acceptance, read
+[D183](DECISION_LOG.md#d183--scope-the-complete-bounded-status-and-workspace-read-graphs-2026-10-18).
+Isolated timings and older native jobs do not close final public/production proof.
+
 For the actual cross-bundle JIT-scope loss and overlapping independent metric
 reads, read [D182](DECISION_LOG.md#d182--share-request-jit-scope-across-route-bundles-and-overlap-independent-reads-2026-10-18).
 Passing source profiles do not replace public latency or new-generation proof.

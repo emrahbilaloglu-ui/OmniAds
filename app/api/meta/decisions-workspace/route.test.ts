@@ -329,7 +329,7 @@ function mockDigestSql(input?: {
     const query = Array.from(strings).join("?");
     if (query.includes("FROM meta_ads_action_log log"))
       return input?.actionRows ?? [];
-    if (query.includes("COALESCE(snapshot.kind, 'recommendation') = 'anomaly'"))
+    if (query.includes("snapshot.kind = 'anomaly'"))
       return input?.anomalyRows ?? [];
     if (query.includes("FROM meta_decision_responses response"))
       return input?.deferralRows ?? [];
@@ -1394,7 +1394,7 @@ describe("GET /api/meta/decisions-workspace", () => {
       .filter((query) =>
         [
           "FROM meta_ads_action_log log",
-          "COALESCE(snapshot.kind, 'recommendation') = 'anomaly'",
+          "snapshot.kind = 'anomaly'",
           "FROM meta_decision_responses response",
           "FROM meta_decision_snapshots_daily snapshot",
         ].some((fragment) => query.includes(fragment)),

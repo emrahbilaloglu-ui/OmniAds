@@ -2,6 +2,11 @@
 
 This is the first file future GPT/Codex/Claude chats should read before working on the Adsecute / OmniAds Creative page migration.
 
+For the independently scheduled status read groups and equivalent indexed
+anomaly predicate, read [D186](DECISION_LOG.md#d186--overlap-independent-status-proofs-and-preserve-indexed-anomaly-selection-2026-10-18).
+The D185 first public status/list latency failure remains evidence; final live
+latency and a post-final native generation still require separate acceptance.
+
 For the independently started live inventory read and unresolved live acceptance, read
 [D185](DECISION_LOG.md#d185--start-live-ad-inventory-before-independent-decision-date-resolution-2026-10-18).
 Earlier failed samples remain evidence; overlap tests do not prove final latency.

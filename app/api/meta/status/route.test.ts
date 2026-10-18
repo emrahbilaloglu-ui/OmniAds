@@ -255,6 +255,33 @@ function getUtcTodayIso() {
 }
 
 describe("GET /api/meta/status", () => {
+  it("starts date-dependent coverage and D1 proof before unrelated operational reads finish, and awaits all proofs", async () => {
+    let releaseOps!: (value: never) => void;
+    let releaseD1!: (value: never) => void;
+    const ops = new Promise<never>((resolve) => { releaseOps = resolve; });
+    const d1 = new Promise<never>((resolve) => { releaseD1 = resolve; });
+    vi.mocked(warehouse.getMetaAuthoritativeBusinessOpsSnapshot).mockReturnValueOnce(ops);
+    vi.mocked(warehouse.getMetaAuthoritativeDayVerification).mockReturnValueOnce(d1);
+    let settled = false;
+    const pending = GET(new NextRequest("http://localhost/api/meta/status?businessId=biz_1"))
+      .then((response) => { settled = true; return response; });
+    const flush = async () => { for (let n = 0; n < 60; n++) await Promise.resolve(); };
+    try {
+      await flush();
+      expect(warehouse.getMetaAccountDailyCoverage).toHaveBeenCalled();
+      expect(warehouse.getMetaAuthoritativeDayVerification).toHaveBeenCalledExactlyOnceWith({
+        businessId: "biz_1", providerAccountId: "act_1", day: "2026-04-12",
+      });
+      expect(settled).toBe(false);
+      releaseOps(null as never);
+      await flush();
+      expect(settled).toBe(false);
+    } finally {
+      releaseOps(null as never);
+      releaseD1({ verificationState: "finalized_verified" } as never);
+      expect((await pending).status).toBe(200);
+    }
+  });
   it("keeps provider freshness separate from a proven shared process waiting on another provider", async () => {
     vi.mocked(readDbGrowthFenceObservation).mockImplementationOnce(async () => {
       expect(isDbJitDisabledInScope()).toBe(true);

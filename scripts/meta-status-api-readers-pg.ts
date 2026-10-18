@@ -22,6 +22,15 @@ function routeSql(file: string, functionName: string) {
     }
     if (inside && ts.isTaggedTemplateExpression(node) && ts.isTemplateExpression(node.template)) {
       const template = node.template;
+      if (functionName === "readDecisionDigest") {
+        if (node.getText(source).includes("= 'anomaly'")) {
+          assert.deepEqual(template.templateSpans.map((span) => span.expression.getText(source)),
+            ["input.businessId", "input.entityIds", "since", "since"]);
+          queries.push(template.head.text + template.templateSpans.map((span, index) =>
+            `$${index + 1}` + span.literal.text).join(""));
+        }
+        return;
+      }
       assert.equal(template.templateSpans.length, 1);
       assert.equal(template.templateSpans[0]!.expression.getText(source), "businessId");
       queries.push(template.head.text + "$1::text" + template.templateSpans[0]!.literal.text);
@@ -58,8 +67,10 @@ export async function verifyMetaStatusApiReadersPg(client: Client) {
   const pulse = routeSql("app/api/meta/account-pulse/route.ts", "readEngineMetadata");
   const coverageQueries = routeSql("lib/meta/warehouse.ts", "getMetaCoverageForTable");
   const breakdownQueries = routeSql("lib/meta/warehouse.ts", "getMetaBreakdownDailyCoverageByEndpoint");
+  const anomalies = routeSql("app/api/meta/decisions-workspace/route.ts", "readDecisionDigest");
   assert.equal(dates.length, 2); assert.equal(pulse.length, 1); assert.equal(coverageQueries.length, 1);
   assert.equal(breakdownQueries.length, 1);
+  assert.equal(anomalies.length, 1);
   await runPinnedDbTransaction({ client, timeoutMs: 8000, lockTimeoutMs: 1000, fn: async (db) => {
     await db.query("SET LOCAL TIME ZONE 'UTC'");
     await db.query(`CREATE TEMP TABLE engine_v3_decision_snapshots_daily(business_ref_id uuid,business_id text,creative_id text,as_of_date date) ON COMMIT DROP;
@@ -144,6 +155,39 @@ export async function verifyMetaStatusApiReadersPg(client: Client) {
     assert(metadataNodes.some((node) => node["Index Name"] === "idx_meta_decision_snapshots_daily_business_kind_created" &&
       /business_id/.test(String(node["Index Cond"])) && /kind/.test(String(node["Index Cond"]))));
     assert(!metadataNodes.some((node) => ["Sort", "Seq Scan"].includes(String(node["Node Type"]))));
+
+    await db.query(`ALTER TABLE meta_decision_snapshots_daily
+      ADD COLUMN rec_id text, ADD COLUMN evidence jsonb, ADD COLUMN reasoning text,
+      ADD COLUMN scope_id text, ADD COLUMN resolved_at timestamptz, ADD COLUMN detected_at timestamptz`);
+    await db.query(`INSERT INTO meta_decision_snapshots_daily
+      (business_id,kind,created_at,rec_id,evidence,reasoning,scope_id,resolved_at,detected_at) VALUES
+      ($1,'anomaly','2026-02-03','open','{"title":"Open alert"}',NULL,'scope-a',NULL,NULL),
+      ($1,'anomaly','2026-02-02','resolved','{"name":"Old alert"}',NULL,'scope-a','2026-02-03','2026-02-02'),
+      ($1,'anomaly','2026-01-01','outside-window','{}','Earlier','scope-a',NULL,NULL),
+      ($1,'anomaly','2026-02-04','wrong-scope','{}','Other','scope-b',NULL,NULL),
+      ($2,'anomaly','2026-02-04','foreign','{}','Foreign','scope-a',NULL,NULL),
+      ($1,NULL,'2026-02-04','legacy-null','{}','anomaly','scope-a',NULL,NULL),
+      ($1,'recommendation','2026-02-04','recommendation','{}','anomaly','scope-a',NULL,NULL)`, [business, foreign]);
+    await db.query(`INSERT INTO meta_decision_snapshots_daily
+      (business_id,kind,created_at,rec_id,scope_id)
+      SELECT $1,'recommendation','2026-02-04','decoy-'||g,'scope-a'
+      FROM generate_series(1,20000) g`, [business]);
+    await db.query("ANALYZE meta_decision_snapshots_daily");
+    const anomalyArgs = [business, ["scope-a"], "2026-02-01", "2026-02-01"];
+    const actualAnomalies = await db.query(anomalies[0]!, anomalyArgs);
+    assert.deepEqual(actualAnomalies.map((row) => [row.id, row.title, row.status]),
+      [["open", "Open alert", "open"], ["resolved", "Old alert", "resolved"]]);
+    const oldAnomalySql = anomalies[0]!.replace("snapshot.kind = 'anomaly'", "COALESCE(snapshot.kind, 'recommendation') = 'anomaly'");
+    assert.deepEqual(actualAnomalies, await db.query(oldAnomalySql, anomalyArgs));
+    assert.equal((await db.query(anomalies[0]!, [business, [], null, null])).length, 0);
+    assert.equal((await db.query(anomalies[0]!, [business, ["scope-a"], null, null])).length, 3);
+    const [anomalyPlanRow] = await db.query("EXPLAIN (ANALYZE, FORMAT JSON, TIMING OFF) " + anomalies[0]!, anomalyArgs);
+    const anomalyNodes: Record<string, unknown>[] = [];
+    collect(anomalyPlanRow!["QUERY PLAN"][0].Plan, anomalyNodes);
+    assert(anomalyNodes.some((node) => node["Index Name"] === "idx_meta_decision_snapshots_daily_business_kind_created" &&
+      /business_id/.test(String(node["Index Cond"])) && /kind/.test(String(node["Index Cond"]))));
+    assert(anomalyNodes.filter((node) => node["Relation Name"] === "meta_decision_snapshots_daily")
+      .every((node) => Number(node["Actual Rows"]) <= 4));
 
     await db.query(`INSERT INTO meta_adset_daily VALUES
       ($1,'act-a','2026-01-01','2026-01-10'),($1,'act-a','2026-01-01','2026-01-11'),
@@ -244,5 +288,5 @@ export async function verifyMetaStatusApiReadersPg(client: Client) {
     // Pinned calls above really used the same temporary fixture connection.
     assert.equal((await getDb().query("SELECT COUNT(*)::int n FROM meta_adset_daily WHERE business_id=$1", [business]))[0]!.n, 3);
   } });
-  console.log("[meta-status-api-readers] PASS actual SQL: native/legacy competing-date bounds, ties, null/absent native dates, dual ownership, historical account ambiguity, ordered metadata index/backfills, exact daily coverage, point breakdown witnesses/checkpoints/legacy raw, 761-day bounds and partition semantics");
+  console.log("[meta-status-api-readers] PASS actual SQL: native/legacy competing-date bounds, ties, null/absent native dates, dual ownership, historical account ambiguity, ordered metadata index/backfills, indexed anomaly kind with null legacy/window/scope/owner parity, exact daily coverage, point breakdown witnesses/checkpoints/legacy raw, 761-day bounds and partition semantics");
 }

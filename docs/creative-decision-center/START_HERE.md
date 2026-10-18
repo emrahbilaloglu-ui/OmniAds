@@ -2,6 +2,10 @@
 
 This is the first file future GPT/Codex/Claude chats should read before working on the Adsecute / OmniAds Creative page migration.
 
+For one-way capacity-proof reuse by status readers after the natural-load failure,
+read [D193](DECISION_LOG.md#d193--reuse-identical-fresh-full-capacity-proofs-only-in-read-observations-2026-10-18).
+Every full/write evaluation still performs its own original proof.
+
 For foreground read fairness during the natural cron pass and evidence timing,
 read [D192](DECISION_LOG.md#d192--bound-cross-business-cron-work-and-measure-evidence-read-phases-2026-10-18).
 The earlier second evidence request took51.5s; its exact cause remains unproven.

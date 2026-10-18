@@ -28,6 +28,7 @@ const {
   evaluatePhysicalCapacity,
   PHYSICAL_DATA_PATH,
   PHYSICAL_SNAPSHOT_MAX_AGE_MS,
+  PHYSICAL_TELEMETRY_SOURCE,
   MINIMUM_VOLUME_FREE_BYTES: MIN_FREE,
 } = await import("@/lib/sync/db-growth-fence");
 
@@ -1107,4 +1108,145 @@ describe("read-only capacity observation", () => {
     await readDbGrowthFenceObservation({ env });
     expect(query).toHaveBeenCalledTimes(2);
   });
+  it("reuses a normal completed full proof for reads without refreshing its clock",async()=>{
+    const query=installDb(sizes()),full=await evaluateDbGrowthFence({env:{}});
+    const nowMs=Date.parse(full.evaluatedAt)+1000;
+    expect(await readDbGrowthFenceObservation({env:{},nowMs})).toBe(full);
+    expect(query).toHaveBeenCalledTimes(1);
+    await readDbGrowthFenceObservation({env:{},nowMs:nowMs+15001});
+    expect(query).toHaveBeenCalledTimes(2);
+  });
+
+  it("joins a pending full proof while each concurrent full evaluation still measures independently",async()=>{
+    const rows=sizes();let release!:()=>void;
+    const gate=new Promise<void>(done=>{release=done;});
+    const query=installDb(rows);query.mockImplementation(async()=>{await gate;return rows;});
+    const full1=evaluateDbGrowthFence({env:{}});
+    const full2=evaluateDbGrowthFence({env:{}});
+    const read=readDbGrowthFenceObservation({env:{},nowMs:Date.now()+1000});
+    try{expect(query).toHaveBeenCalledTimes(2);}finally{release();}
+    const [one,two,observed]=await Promise.all([full1,full2,read]);
+    expect(one.allowed&&two.allowed).toBe(true);expect(observed).toBe(two);
+    expect(query).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not join an in-flight full proof with different settings or deadline",async()=>{
+    const rows=sizes();let release!:()=>void;
+    const gate=new Promise<void>(done=>{release=done;});
+    const query=installDb(rows);query.mockImplementationOnce(async()=>{await gate;return rows;});
+    const full=evaluateDbGrowthFence({env:{}});
+    const read=readDbGrowthFenceObservation({env:{SYNC_GROWTH_FENCE_DATABASE_BYTES:String(170*GiB)},nowMs:Date.now()+1000});
+    try{expect(query).toHaveBeenCalledTimes(2);}finally{release();}
+    await Promise.all([full,read]);
+    resetDbGrowthFenceReadObservationCache();
+    await evaluateDbGrowthFence({env:{},queryTimeoutMs:5000});
+    await readDbGrowthFenceObservation({env:{},queryTimeoutMs:3000});
+    expect(query).toHaveBeenCalledTimes(4);
+  });
+
+  it.each(["future","physical expiry","override","refusal"])("does not retain an unsafe full proof: %s",async kind=>{
+    const now=Date.now();
+    const env=kind==="override"?{[OVERRIDE_ENV_FLAG]:OVERRIDE_ENV_VALUE,[OVERRIDE_REASON_ENV]:"owned only",[OVERRIDE_EXPIRES_ENV]:new Date(now+60000).toISOString()}:{};
+    const sampledAt=new Date(now-(PHYSICAL_SNAPSHOT_MAX_AGE_MS-1000)).toISOString();
+    const query=installDb(kind==="physical expiry"?sizes({}, {capacity_sampled_at:sampledAt,capacity_age_seconds:(PHYSICAL_SNAPSHOT_MAX_AGE_MS-1000)/1000,capacity_payload:capacityPayload({sampledAt})}):sizes(kind==="override"||kind==="refusal"?{database_bytes:500*GiB}:{}));
+    const full=await evaluateDbGrowthFence({env});
+    await readDbGrowthFenceObservation({env,nowMs:kind==="future"?Date.parse(full.evaluatedAt)-1:kind==="physical expiry"?now+1001:Date.now()+1});
+    expect(query).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not revive an older successful proof after a newer full refusal",async()=>{
+    const before=Date.now();let release!:()=>void;
+    const gate=new Promise<void>(done=>{release=done;});
+    const rows=sizes(),q=installDb(rows);
+    q.mockImplementationOnce(async()=>{await gate;return rows;}).mockResolvedValue(sizes({database_bytes:500*GiB}));
+    const old=evaluateDbGrowthFence({env:{},nowMs:before-1000});
+    expect((await evaluateDbGrowthFence({env:{},nowMs:before})).allowed).toBe(false);
+    release();expect((await old).allowed).toBe(true);
+    const fresh=installDb(sizes({database_bytes:500*GiB}));
+    expect((await readDbGrowthFenceObservation({env:{},nowMs:before+1000})).allowed).toBe(false);
+    expect(fresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not borrow a full proof whose input key changed while measuring",async()=>{
+    const env:Record<string,string>={};let release!:()=>void;
+    const gate=new Promise<void>(done=>{release=done;});
+    const rows=sizes(),q=installDb(rows);q.mockImplementationOnce(async()=>{await gate;return rows;});
+    const full=evaluateDbGrowthFence({env}),read=readDbGrowthFenceObservation({env,nowMs:Date.now()+1000});
+    env.SYNC_GROWTH_FENCE_DATABASE_BYTES=String(170*GiB);release();
+    const [written,observed]=await Promise.all([full,read]);
+    expect(observed).not.toBe(written);expect(q).toHaveBeenCalledTimes(2);
+  });
+
+  it("bounds waiting by the original proof age without cancelling the full evaluation",async()=>{
+    vi.useFakeTimers();
+    let release!:()=>void;
+    const gate=new Promise<void>(done=>{release=done;});
+    const rows=sizes(),q=installDb(rows);q.mockImplementation(async()=>{await gate;return rows;});
+    const full=evaluateDbGrowthFence({env:{}}),read=readDbGrowthFenceObservation({env:{}});
+    const outcome=read.then(()=>null,error=>String(error.message));
+    try{
+      await vi.advanceTimersByTimeAsync(15000);
+      expect(await outcome).toBe("capacity_observation_full_proof_wait_expired");
+      expect(q).toHaveBeenCalledTimes(1);
+    }finally{release();await full;vi.useRealTimers();}
+  });
+
+  it("does not let an older pending reader refill the cache after a newer full refusal",async()=>{
+    vi.useFakeTimers();const start=Date.now();let release!:()=>void;
+    const gate=new Promise<void>(done=>{release=done;});
+    const rows=sizes(),q=installDb(rows);q.mockImplementationOnce(async()=>{await gate;return rows;}).mockResolvedValue(sizes({database_bytes:500*GiB}));
+    const old=evaluateDbGrowthFence({env:{}}),read=readDbGrowthFenceObservation({env:{},nowMs:start});
+    try{
+      await vi.advanceTimersByTimeAsync(1);
+      expect((await evaluateDbGrowthFence({env:{}})).allowed).toBe(false);
+      release();await Promise.all([old,read]);
+      const fresh=installDb(sizes({database_bytes:500*GiB}));
+      expect((await readDbGrowthFenceObservation({env:{},nowMs:start+1000})).allowed).toBe(false);
+      expect(fresh).toHaveBeenCalledTimes(1);
+    }finally{release();await Promise.allSettled([old,read]);vi.useRealTimers();}
+  });
+
+  it.runIf(process.env.ADSECUTE_CAPACITY_REUSE_OWNED_PG==="1")("shares the actual complete native/raw proof with a reader on owned PostgreSQL",async()=>{
+    const url=new URL(process.env.DATABASE_URL!);
+    expect(url.hostname).toBe("127.0.0.1");expect(url.pathname).toBe("/adsecute_capacity_reuse");expect([5432,15432]).not.toContain(Number(url.port));
+    const {Client}=await import("pg"),client=new Client({connectionString:url.href,ssl:false});await client.connect();
+    try{
+      await client.query("CREATE EXTENSION pgstattuple; CREATE EXTENSION pg_freespacemap; CREATE EXTENSION pg_visibility");
+      for(const table of new Set<string>([...FENCED_TABLES,"engine_v3_ad_decision_evaluations"])){
+        expect(table).toMatch(/^[a-z][a-z0-9_]+$/);await client.query('CREATE TABLE public."'+table+'"(id int)');
+      }
+      await client.query("CREATE TABLE system_capacity_snapshots(id bigint,source text,sampled_at timestamptz,payload jsonb)");
+      await client.query("INSERT INTO system_capacity_snapshots VALUES (1,$1,now(),$2::jsonb)",[PHYSICAL_TELEMETRY_SOURCE,JSON.stringify(capacityPayload({database:{name:"adsecute_capacity_reuse",sizeBytes:1,sizePretty:"1 byte"}}))]);
+      let release!:()=>void;const gate=new Promise<void>(done=>{release=done;});let first=true;
+      const query=vi.fn(async(text:string,params?:unknown[])=>{if(first){first=false;await gate;}return(await client.query(text,params)).rows;});
+      vi.mocked(db.getDbWithTimeout).mockReturnValue({query} as never);
+      const env={SYNC_GROWTH_FENCE_REUSABLE_NATIVE_HEAP_ENABLED:"true",SYNC_GROWTH_FENCE_RAW_REUSE_ENABLED:"true"};
+      const full=evaluateDbGrowthFence({env}),read=readDbGrowthFenceObservation({env,nowMs:Date.now()+1000});
+      try{expect(query).toHaveBeenCalledTimes(1);}finally{release();}
+      const [written,observed]=await Promise.all([full,read]);
+      expect(written.allowed).toBe(true);expect(observed).toBe(written);
+      const metadata=query.mock.calls.filter(([text])=>text.includes("latest_capacity AS")).length;
+      const native=query.mock.calls.filter(([text])=>text.includes("pgstattuple_approx")&&text.includes("engine_v3_ad_decision_evaluations")).length;
+      const stateHistory=query.mock.calls.filter(([text])=>text.includes("pgstattuple_approx")&&text.includes("meta_entity_state_history")).length;
+      const raw=query.mock.calls.filter(([text])=>text.includes("pg_visibility_map")).length;
+      expect({metadata,stateHistory,native,raw}).toEqual({metadata:1,stateHistory:1,native:1,raw:2});expect(query).toHaveBeenCalledTimes(5);
+      console.log("owned-capacity-proof-reuse",JSON.stringify({metadata,stateHistory,native,raw,total:query.mock.calls.length,originalClockPreserved:observed.evaluatedAt===written.evaluatedAt,actualSql:true,productionAccess:false}));
+    }finally{await client.end();}
+  });
+
+  it("shares the full proof across independent module instances without a second DB read",async()=>{
+    const rows=sizes();let release!:()=>void;
+    const gate=new Promise<void>(done=>{release=done;});
+    const first=installDb(rows);first.mockImplementation(async()=>{await gate;return rows;});
+    const full=evaluateDbGrowthFence({env:{}});
+    vi.resetModules();
+    const secondDb=await import("@/lib/db"),second=vi.fn(async()=>rows);
+    vi.mocked(secondDb.getDbWithTimeout).mockReturnValue({query:second} as never);
+    const other=await import("@/lib/sync/db-growth-fence");
+    const read=other.readDbGrowthFenceObservation({env:{},nowMs:Date.now()+1000});
+    release();
+    const [written,observed]=await Promise.all([full,read]);
+    expect(observed).toBe(written);expect(first).toHaveBeenCalledTimes(1);expect(second).not.toHaveBeenCalled();
+  });
+
 });

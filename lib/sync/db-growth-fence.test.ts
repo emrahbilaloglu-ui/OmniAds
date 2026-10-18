@@ -891,6 +891,119 @@ describe("raw table map accounting",()=>{
   });
 });
 
+describe("status-only proof overlap", () => {
+  const env = {
+    SYNC_GROWTH_FENCE_DATABASE_BYTES: String(163 * GiB),
+    SYNC_GROWTH_FENCE_REUSABLE_NATIVE_HEAP_ENABLED: "true",
+    SYNC_GROWTH_FENCE_RAW_REUSE_ENABLED: "true",
+  };
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetDbGrowthFenceReadObservationCache();
+    resetDbGrowthFenceCache();
+  });
+
+  function controlledProofs(failShopify = false, blockRaw = false) {
+    let releaseNative!: () => void;
+    let signalNative!: () => void;
+    const blocked = new Promise<void>(resolve => { releaseNative = resolve; });
+    const nativeStarted = new Promise<void>(resolve => { signalNative = resolve; });
+    let releaseRaw!: () => void;
+    const rawBlocked = blockRaw ? new Promise<void>(resolve => { releaseRaw = resolve; }) : Promise.resolve();
+    const raw = 164 * GiB;
+    const meta = 22 * GiB + 100 * 1024 ** 2;
+    const shop = 16 * GiB + 100 * 1024 ** 2;
+    const query = vi.fn(async (text: string, args?: unknown[]) => {
+      if (text.includes("public.pg_freespace")) {
+        await rawBlocked;
+        if (args?.[0] === "public.shopify_raw_snapshots" && failShopify) throw Error("owned proof failure");
+        const isMeta = args?.[0] === "public.meta_raw_snapshots";
+        return [{ raw_bytes: isMeta ? meta : shop, database_bytes: raw, heaps: [
+          { kind: "main", oid: isMeta ? 100 : 200, heap_bytes: GiB, visible_free_bytes: 0 },
+          { kind: "toast", oid: isMeta ? 101 : 201, heap_bytes: isMeta ? 20 * GiB : 14 * GiB,
+            visible_free_bytes: isMeta ? 2 * GiB : GiB },
+        ] }];
+      }
+      if (text.includes("approx_free_space") && text.includes("engine_v3_ad_decision_evaluations")) {
+        signalNative();
+        await blocked;
+        return [{ database_bytes: raw, total_bytes: 70 * GiB, heap_bytes: 20 * GiB,
+          table_len: 20 * GiB, approx_free_space: 4 * GiB }];
+      }
+      return sizes({ database_bytes: raw, meta_raw_snapshots: meta, shopify_raw_snapshots: shop });
+    });
+    vi.mocked(db.getDbWithTimeout).mockReturnValue({ query } as never);
+    return { query, nativeStarted, releaseNative, releaseRaw,
+      rawCalls: () => query.mock.calls.filter(([text]) => text.includes("public.pg_freespace")).length };
+  }
+
+  it.each(["admission", "observation"] as const)("%s keeps its required proof order and awaits the complete decision", async (mode) => {
+    const proof = controlledProofs();
+    let settled = false;
+    const pending = (mode === "admission" ? evaluateDbGrowthFence({ env }) : readDbGrowthFenceObservation({ env }))
+      .then(value => { settled = true; return value; });
+    await proof.nativeStarted;
+    // Flush promise continuations without releasing the blocked native proof.
+    await new Promise<void>(resolve => setImmediate(resolve));
+    try {
+      expect(proof.rawCalls()).toBe(mode === "observation" ? 2 : 0);
+      expect(settled).toBe(false);
+    } finally {
+      proof.releaseNative();
+    }
+    const decision = await pending;
+    expect(decision).toMatchObject({ allowed: true, reason: "ready", overridden: false,
+      databaseBudgetBytes: 163 * GiB,
+      databaseAccounting: { accountedDatabaseBytes: 157 * GiB + 2 * 1024 ** 2 },
+      tableBudgetBytes: { meta_raw_snapshots: 22 * GiB, shopify_raw_snapshots: 16 * GiB } });
+    expect(proof.rawCalls()).toBe(2);
+  });
+
+  it("keeps a failed raw proof fail-closed and re-measures instead of caching it", async () => {
+    const first = controlledProofs(true);
+    const pending = readDbGrowthFenceObservation({ env });
+    await first.nativeStarted;
+    first.releaseNative();
+    expect(await pending).toMatchObject({ allowed: false, reason: "table_budget_exceeded",
+      offender: { table: "shopify_raw_snapshots" },
+      rawPayloadReuse: { shopify_raw_snapshots: { metric: "raw_fallback", reusableBytes: 0 } } });
+    const recovered = controlledProofs();
+    const retry = readDbGrowthFenceObservation({ env });
+    await recovered.nativeStarted;
+    recovered.releaseNative();
+    expect((await retry).allowed).toBe(true);
+    expect(recovered.rawCalls()).toBe(2);
+  });
+
+  it("drains a started raw observation before returning a later physical refusal", async () => {
+    const proof = controlledProofs(false, true);
+    let settled = false;
+    const pending = readDbGrowthFenceObservation({ env }).then(value => { settled = true; return value; });
+    await proof.nativeStarted;
+    const current = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(current + PHYSICAL_SNAPSHOT_MAX_AGE_MS + 1000);
+    try {
+      proof.releaseNative();
+      await new Promise<void>(resolve => setImmediate(resolve));
+      expect(proof.rawCalls()).toBe(1);
+      expect(settled).toBe(false);
+    } finally {
+      clock.mockRestore();
+      proof.releaseRaw();
+    }
+    expect(await pending).toMatchObject({ allowed: false, reason: "physical_snapshot_stale" });
+    expect(proof.rawCalls()).toBe(2);
+  });
+
+  it("starts no heap proof when the initial physical admission refuses", async () => {
+    const query = installDb(sizes({}, { capacity_payload: capacityPayload({ disks: [
+      { path: PHYSICAL_DATA_PATH, totalBytes: 400 * GiB, usedBytes: 370 * GiB, availableBytes: 30 * GiB },
+    ] }) }));
+    expect((await readDbGrowthFenceObservation({ env })).allowed).toBe(false);
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("read-only capacity observation", () => {
   beforeEach(() => {
     vi.clearAllMocks();

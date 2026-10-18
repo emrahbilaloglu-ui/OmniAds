@@ -2,6 +2,10 @@
 
 This is the first file future GPT/Codex/Claude chats should read before working on the Adsecute / OmniAds Creative page migration.
 
+For status-only overlap of independent capacity proofs with sequential writer admission,
+read [D188](DECISION_LOG.md#d188--overlap-independent-capacity-proofs-only-for-status-observations-2026-10-18).
+The D187 first public status failure remains retained.
+
 For the single global capacity-size measurement and request-local status timing,
 read [D187](DECISION_LOG.md#d187--measure-global-capacity-once-per-metadata-statement-and-expose-status-read-timings-2026-10-18).
 The D186 first status latency failure remains retained; no warm sample closes it.

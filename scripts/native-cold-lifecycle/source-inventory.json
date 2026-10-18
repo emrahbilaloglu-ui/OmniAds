@@ -383,8 +383,8 @@
     },
     {
       "path": "lib/sync/db-growth-fence.ts",
-      "sha256": "9d2d632b2e2a4fe2908ab6beb8930071688aa57bc861699a1c0a6b038d8358cf",
-      "bytes": 58283
+      "sha256": "de1d87c962d113751d881407f630e0152e7faf0b6edcc65ddc846cbb8edac643",
+      "bytes": 59848
     },
     {
       "path": "lib/sync/global-kill-switch.ts",
@@ -553,8 +553,8 @@
     },
     {
       "path": "scripts/meta-status-api-readers-pg.ts",
-      "sha256": "5ca088a1f0f76e0fc26c078dc28ec942c3d484aee5ee0b32a0f918a0f247041d",
-      "bytes": 25482
+      "sha256": "e4cf26da7746f4a18247619e02b2e9df56f94198a1633b448100217f81257be1",
+      "bytes": 25516
     },
     {
       "path": "scripts/meta/creative-day-source-evidence-repair.ts",
@@ -837,5 +837,5 @@
       "bytes": 4644
     }
   ],
-  "sourceInventorySha256": "23d6943c836c17a85e9b1c13ddb2f9d951a6134b1bfbee47e2936b7640b6ee83"
+  "sourceInventorySha256": "d0c6d3c273a2a14352e8ac802ee8de63d56201e6c6bf6ca2f10c33e3404b801d"
 }

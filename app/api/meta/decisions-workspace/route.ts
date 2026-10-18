@@ -425,17 +425,36 @@ async function resolveWorkspaceEndDate(input: {
 }) {
   if (input.explicitEndDate?.trim()) return input.explicitEndDate.trim();
   if (!input.providerAccountId) return previousUtcDate();
-  // Restrict legacy membership work to this canonical business's retained
-  // snapshot IDs first. Keep cross-account ambiguity and newer legacy dates;
-  // a native marker is cache invalidation, not permission to skip that evidence.
+  // Only legacy dates at/after the native/job maximum can change that maximum.
+  // Keep all historical account bindings for those creative IDs so cross-account
+  // ambiguity still excludes them. Missing native dates retain all legacy dates;
+  // this lower bound does not select a generation or confer decision authority.
   try {
     const rows = await getDb().query<{ latest_as_of: string | null }>(
       `
-        WITH scoped_legacy_snapshots AS MATERIALIZED (
+        WITH native_date_candidates AS MATERIALIZED (
+          SELECT MAX(as_of_date) AS as_of_date
+          FROM engine_v3_ad_decision_snapshots_daily
+          WHERE business_ref_id = $1::uuid
+            AND business_id = $1::text
+            AND provider_account_id = $2
+          UNION ALL
+          SELECT MAX(as_of_date) AS as_of_date
+          FROM engine_v3_job_runs
+          WHERE business_ref_id = $1::uuid
+            AND business_id = $1::text
+            AND job_name = 'engine_v3_native_ad_decisions_shadow_job'
+        ),
+        native_latest AS MATERIALIZED (
+          SELECT MAX(as_of_date) AS as_of_date FROM native_date_candidates
+        ),
+        scoped_legacy_snapshots AS MATERIALIZED (
           SELECT creative_id, as_of_date
           FROM engine_v3_decision_snapshots_daily
           WHERE business_ref_id = $1::uuid
             AND business_id = $1::text
+            AND as_of_date >= COALESCE(
+              (SELECT as_of_date FROM native_latest), '-infinity'::date)
         ),
         creative_account_keys AS (
           SELECT DISTINCT business_id, provider_account_id, creative_id
@@ -458,22 +477,12 @@ async function resolveWorkspaceEndDate(input: {
              AND MIN(provider_account_id) = $2
         ),
         candidate_dates AS (
-          SELECT MAX(as_of_date) AS as_of_date
-          FROM engine_v3_ad_decision_snapshots_daily
-          WHERE business_ref_id = $1::uuid
-            AND business_id = $1::text
-            AND provider_account_id = $2
+          SELECT as_of_date FROM native_latest
           UNION ALL
           SELECT MAX(snapshot.as_of_date) AS as_of_date
           FROM scoped_legacy_snapshots snapshot
           INNER JOIN creative_account_scope account_scope
             ON account_scope.creative_id = snapshot.creative_id
-          UNION ALL
-          SELECT MAX(as_of_date) AS as_of_date
-          FROM engine_v3_job_runs
-          WHERE business_ref_id = $1::uuid
-            AND business_id = $1::text
-            AND job_name = 'engine_v3_native_ad_decisions_shadow_job'
         )
         SELECT MAX(as_of_date)::text AS latest_as_of
         FROM candidate_dates

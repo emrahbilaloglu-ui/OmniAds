@@ -2,6 +2,10 @@
 
 This is the first file future GPT/Codex/Claude chats should read before working on the Adsecute / OmniAds Creative page migration.
 
+For the separately reviewed host installer inventory pin and its failed transition,
+read [D189](DECISION_LOG.md#d189--pin-the-separately-reviewed-host-installer-to-the-actual-runtime-inventory-2026-10-18).
+A healthy image does not prove source pin compatibility.
+
 For status-only overlap of independent capacity proofs with sequential writer admission,
 read [D188](DECISION_LOG.md#d188--overlap-independent-capacity-proofs-only-for-status-observations-2026-10-18).
 The D187 first public status failure remains retained.

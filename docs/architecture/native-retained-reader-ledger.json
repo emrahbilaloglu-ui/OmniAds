@@ -23,8 +23,8 @@
     {
       "path": "app/api/meta/decisions-workspace/route.ts",
       "role": "serving-and-history",
-      "sha256": "20182e075c6ebd68ae113fced8602cd45ca52c83e87c4340733070034f385da5",
-      "retention": "Keep every retained snapshot and its complete evaluation/context lineage across all dates, epochs and current winners; latest/episode/history/freshness access remains available. D180 bounds date lookup to retained IDs with exact canonical UUID/text business ownership before the unchanged cross-account ambiguity exclusion and native/legacy/job maximum date. All retained rows remain; contradictory ownership cannot set a current date. No native generation selection, hash, epoch or provider authority change. D182 starts the same authorised metric upstream reads alongside independent retained decision-date resolution, preserving exact metric params/cache keys, account/current-Ad/generation/role/commercial/governance checks and failure responses. Native SQL, generation date/identity, hashes, epochs and historical authority are unchanged. D183 wraps the unchanged bounded GET graph in the existing request-local JIT scope. All queries, original lineage, account/date checks, hashes, complete manifests and historical/current authority remain unchanged."
+      "sha256": "49f675aa2415082e6c9a2621b4b7fdc799c840281a4d511b5cd264ea1c46ab42",
+      "retention": "Keep every retained snapshot and its complete evaluation/context lineage across all dates, epochs and current winners; latest/episode/history/freshness access remains available. D180 bounds date lookup to retained IDs with exact canonical UUID/text business ownership before the unchanged cross-account ambiguity exclusion and native/legacy/job maximum date. All retained rows remain; contradictory ownership cannot set a current date. No native generation selection, hash, epoch or provider authority change. D182 starts the same authorised metric upstream reads alongside independent retained decision-date resolution, preserving exact metric params/cache keys, account/current-Ad/generation/role/commercial/governance checks and failure responses. Native SQL, generation date/identity, hashes, epochs and historical authority are unchanged. D183 wraps the unchanged bounded GET graph in the existing request-local JIT scope. All queries, original lineage, account/date checks, hashes, complete manifests and historical/current authority remain unchanged. D184 restricts legacy date membership to this business's dates at/after the original native/job maximum, retaining newer/equal legacy dates, no-native fallback and all historical account ambiguity. This changes no original MAX result or serving/execution authority."
     },
     {
       "path": "lib/business-archive-erasure.ts",
@@ -371,8 +371,8 @@
     {
       "path": "scripts/meta-status-api-readers-pg.ts",
       "role": "owned-fixture",
-      "sha256": "cd9f79508407d1ac47a498bc2b628946e221bccc59f19e5c6fa4d3bd79d6e855",
-      "retention": "D180 actual route SQL and production coverage on owned loopback PostgreSQL temporary fixtures only. No production writes, retained source removal, clock rewrite or execution authority. D181 additionally executes the actual metadata migration index shape and exact breakdown fact/checkpoint/unlinked-raw witness semantics on owned TEMP fixtures only."
+      "sha256": "eb3596fd4dd1f34b9442c6d2a78abd1c8f11177640613084364a02b932c04633",
+      "retention": "D180 actual route SQL and production coverage on owned loopback PostgreSQL temporary fixtures only. No production writes, retained source removal, clock rewrite or execution authority. D181 additionally executes the actual metadata migration index shape and exact breakdown fact/checkpoint/unlinked-raw witness semantics on owned TEMP fixtures only. D184 owned-only fixture executes the real bounded primary date SQL and unchanged legacy fallback, adding ties/newer dates/null native/dual ownership/all-history ambiguity and20000dominated-row index bounds. No production mutation or retention authority."
     },
     {
       "path": "scripts/native-archive-pin-census-seam.ts",
@@ -507,5 +507,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "35933913b25ae882bfab2a5d62c4954600332b591d483d629ff05afdf2f1a688"
+  "sourceInventorySha256": "22145d7d74d8169be175c9e18e3ddae90ffaf1ff526502810687cc6e11984cab"
 }

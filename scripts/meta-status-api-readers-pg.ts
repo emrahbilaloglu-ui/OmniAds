@@ -11,7 +11,7 @@ function routeSql(file: string, functionName: string) {
   const queries: string[] = [];
   function walk(node: ts.Node, inside = false) {
     inside ||= ts.isFunctionDeclaration(node) && node.name?.text === functionName;
-    if (inside && ts.isNoSubstitutionTemplateLiteral(node) && node.text.includes("WITH scoped_legacy_snapshots")) queries.push(node.text);
+    if (inside && ts.isNoSubstitutionTemplateLiteral(node) && node.text.includes("scoped_legacy_snapshots AS MATERIALIZED")) queries.push(node.text);
     if (inside && ts.isTemplateExpression(node) && node.templateSpans.length === 1 &&
         node.templateSpans[0]!.expression.getText(source) === "input.tableName") {
       queries.push(node.head.text + "meta_adset_daily" + node.templateSpans[0]!.literal.text);
@@ -89,6 +89,40 @@ export async function verifyMetaStatusApiReadersPg(client: Client) {
     // Real newer legacy dates remain candidates. A native job marker does not
     // silently replace them; cross-account ambiguous creatives stay excluded.
     assert.equal((await db.query(dates[0]!, [foreign, "act-a"]))[0]!.latest_as_of, "2026-01-31");
+    // A native tie already determines the maximum. A genuinely newer legacy
+    // date must still win, and ambiguity includes bindings from all history.
+    await db.query("INSERT INTO engine_v3_ad_decision_snapshots_daily VALUES ($1::uuid,$1::text,'act-a','2026-01-15')", [business]);
+    assert.equal((await db.query(dates[0]!, [business, "act-a"]))[0]!.latest_as_of, "2026-01-15");
+    await db.query("INSERT INTO engine_v3_decision_snapshots_daily VALUES ($1::uuid,$1::text,'owned-a','2026-01-16')", [business]);
+    assert.equal((await db.query(dates[0]!, [business, "act-a"]))[0]!.latest_as_of, "2026-01-16");
+    await db.query("INSERT INTO engine_v3_job_runs VALUES ($1::uuid,$1::text,'engine_v3_native_ad_decisions_shadow_job','2026-01-30')", [business]);
+    await db.query(`INSERT INTO engine_v3_decision_snapshots_daily VALUES
+      ($1::uuid,$1::text,'owned-b','2026-01-31'),($1::uuid,$1::text,'shared','2026-02-01'),
+      ($1::uuid,$2::text,'owned-a','2035-01-01'),($2::uuid,$1::text,'owned-a','2035-01-01'),
+      ($1::uuid,$1::text,'owned-a',NULL)`, [business, foreign]);
+    await db.query(`INSERT INTO engine_v3_ad_decision_snapshots_daily VALUES
+      ($1::uuid,$2::text,'act-a','2035-01-01'),($2::uuid,$1::text,'act-a','2035-01-01')`, [business, foreign]);
+    await db.query(`INSERT INTO engine_v3_job_runs VALUES
+      ($1::uuid,$2::text,'engine_v3_native_ad_decisions_shadow_job','2035-01-01'),
+      ($2::uuid,$1::text,'engine_v3_native_ad_decisions_shadow_job','2035-01-01')`, [business, foreign]);
+    for (const [account, expected] of [["act-a", "2026-01-30"], ["act-b", "2026-01-31"], ["unassigned", "2026-01-30"]]) {
+      assert.equal((await db.query(dates[0]!, [business, account]))[0]!.latest_as_of, expected);
+    }
+    const empty = "d1800000-0000-4000-8000-000000000003";
+    assert.equal((await db.query(dates[0]!, [empty, "act-a"]))[0]!.latest_as_of, null);
+    // Owned old history must not expand the membership work or defeat the
+    // existing (business_ref_id,as_of_date) range index.
+    await db.query(`INSERT INTO engine_v3_decision_snapshots_daily
+      SELECT $1::uuid,$1::text,'owned-a','2019-01-01'::date+(g%30)
+      FROM generate_series(1,20000) g`, [business]);
+    await db.query("ANALYZE engine_v3_decision_snapshots_daily");
+    const [datePlanRow] = await db.query("EXPLAIN (ANALYZE, FORMAT JSON, TIMING OFF) " + dates[0]!, [business, "act-a"]);
+    const dateNodes: Record<string, unknown>[] = [];
+    collect(datePlanRow!["QUERY PLAN"][0].Plan, dateNodes);
+    assert(dateNodes.some((node) => /business_ref_id/.test(String(node["Index Cond"])) && /as_of_date/.test(String(node["Index Cond"]))));
+    assert(dateNodes.filter((node) => node["Relation Name"] === "engine_v3_decision_snapshots_daily")
+      .every((node) => Number(node["Actual Rows"]) <= 3));
+    assert.equal((await db.query(dates[0]!, [business, "act-a"]))[0]!.latest_as_of, "2026-01-30");
     await db.query(`INSERT INTO meta_decision_snapshots_daily VALUES
       ($1,'recommendation','2026-01-20','2026-01-21','newer-day'),
       ($1,'recommendation','2026-01-10','2026-01-22','later-backfill'),
@@ -210,5 +244,5 @@ export async function verifyMetaStatusApiReadersPg(client: Client) {
     // Pinned calls above really used the same temporary fixture connection.
     assert.equal((await getDb().query("SELECT COUNT(*)::int n FROM meta_adset_daily WHERE business_id=$1", [business]))[0]!.n, 3);
   } });
-  console.log("[meta-status-api-readers] PASS actual SQL: native/legacy dates, account ambiguity, ordered metadata index/backfills, exact daily coverage, point breakdown witnesses/checkpoints/legacy raw, 761-day bounds and partition semantics");
+  console.log("[meta-status-api-readers] PASS actual SQL: native/legacy competing-date bounds, ties, null/absent native dates, dual ownership, historical account ambiguity, ordered metadata index/backfills, exact daily coverage, point breakdown witnesses/checkpoints/legacy raw, 761-day bounds and partition semantics");
 }

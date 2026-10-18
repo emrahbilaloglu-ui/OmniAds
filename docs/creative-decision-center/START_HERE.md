@@ -2,6 +2,10 @@
 
 This is the first file future GPT/Codex/Claude chats should read before working on the Adsecute / OmniAds Creative page migration.
 
+For the dominated legacy-date membership cost and its unchanged authority, read
+[D184](DECISION_LOG.md#d184--bound-legacy-date-membership-to-dates-that-can-affect-the-maximum-2026-10-18).
+Newer legacy dates and global historical account ambiguity stay preserved.
+
 For the complete bounded GET read scopes and remaining live acceptance, read
 [D183](DECISION_LOG.md#d183--scope-the-complete-bounded-status-and-workspace-read-graphs-2026-10-18).
 Isolated timings and older native jobs do not close final public/production proof.

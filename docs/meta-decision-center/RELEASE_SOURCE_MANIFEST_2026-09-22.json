@@ -1,5 +1,5 @@
 {
-  "manifestHash": "cc75de5315dcfa95589d21f12b7957c133425ab8c3b292b143979c34cdca332c",
+  "manifestHash": "02e6c2c5ab13296798533aed9cb411e39e5248450a7a8879cd747733a56e5612",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -332,7 +332,7 @@
     },
     {
       "path": "app/api/meta/decisions-workspace/route.ts",
-      "sha256": "20182e075c6ebd68ae113fced8602cd45ca52c83e87c4340733070034f385da5"
+      "sha256": "49f675aa2415082e6c9a2621b4b7fdc799c840281a4d511b5cd264ea1c46ab42"
     },
     {
       "path": "app/api/meta/entity-role-declarations/route.ts",
@@ -884,7 +884,7 @@
     },
     {
       "path": "docs/architecture/native-retained-reader-ledger.json",
-      "sha256": "b83615ccd7e4c4ff7c775a5e4be5fec24c8efed821e374302334123cab69eece"
+      "sha256": "51d1ff153ff47dfca9dcd33f90b9bcdc9c2ae04185959b86a8f05a83516a3fc3"
     },
     {
       "path": "docs/architecture/native-retained-reader-lifecycle.md",
@@ -928,7 +928,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "9eb2fa398c5f1053dbc580a67ba898fad68ef21ef1f52815edc5a9eebe3d93ba"
+      "sha256": "285c656eda2928e37b9cd60b05058e3e4242a8a7fb4a0ed835f092c106e66097"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -940,7 +940,7 @@
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
-      "sha256": "dc9224bc6dc6e7e4aae3e11e3e4f908118a2676bb4f8be28d51119845c4dbbaf"
+      "sha256": "c387e3fd7eed387cfc8b6656326450e1854533a840781eec935ab07022c7ac80"
     },
     {
       "path": "docs/creative-decision-center/V3_TO_V21_MAPPING.md",
@@ -3236,7 +3236,7 @@
     },
     {
       "path": "scripts/meta-status-api-readers-pg.ts",
-      "sha256": "cd9f79508407d1ac47a498bc2b628946e221bccc59f19e5c6fa4d3bd79d6e855"
+      "sha256": "eb3596fd4dd1f34b9442c6d2a78abd1c8f11177640613084364a02b932c04633"
     },
     {
       "path": "scripts/meta/certify-creative-day-config.ts",
@@ -3436,7 +3436,7 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/source-inventory.json",
-      "sha256": "d5cf22c436a2f8f6d5ccef9656f1dc0bb856422b6f8fbb9361e00f80b2a8d59e"
+      "sha256": "c80cc0d85a81a59af7cc974f378162679974fe559497fd64a056be0f5cfdfcc7"
     },
     {
       "path": "scripts/native-cold-lifecycle/types.ts",
@@ -3632,7 +3632,7 @@
     },
     {
       "path": "scripts/ops/install-native-cold-runtime.py",
-      "sha256": "0e2f61576ade3058c58bb2e33f09ab9899daec4ba15d9135388ebc6bfb7d1f01"
+      "sha256": "7c3806b54d6a98f9f96f6ba85f8699b9076d70dccac4f07b91cb30d040ec0b53"
     },
     {
       "path": "scripts/ops/install-native-cold-runtime.test.ts",

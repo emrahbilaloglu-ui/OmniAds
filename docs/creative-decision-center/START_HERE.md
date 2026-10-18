@@ -2,6 +2,10 @@
 
 This is the first file future GPT/Codex/Claude chats should read before working on the Adsecute / OmniAds Creative page migration.
 
+For the normal caller's five-minute timeout during longer native production,
+read [D194](DECISION_LOG.md#d194--keep-one-normal-cron-caller-and-retain-its-long-production-response-2026-10-18).
+This changes only the reviewed host invocation; native jobs and admission stay unchanged.
+
 For one-way capacity-proof reuse by status readers after the natural-load failure,
 read [D193](DECISION_LOG.md#d193--reuse-identical-fresh-full-capacity-proofs-only-in-read-observations-2026-10-18).
 Every full/write evaluation still performs its own original proof.

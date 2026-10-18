@@ -1,5 +1,5 @@
 {
-  "manifestHash": "02e6c2c5ab13296798533aed9cb411e39e5248450a7a8879cd747733a56e5612",
+  "manifestHash": "2622286246dfe0a205c33e13009dd10542c975486a19cf59e50dae36ee53107d",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -328,11 +328,11 @@
     },
     {
       "path": "app/api/meta/decisions-workspace/route.test.ts",
-      "sha256": "e0ebab3373ddb96138fcd1f9e22e4f4f559073d6fbf032b6de9159c34b65fd5a"
+      "sha256": "698ac472f20766a5da84ef29b11213fbb64fed311f3115f31109abbf22c80214"
     },
     {
       "path": "app/api/meta/decisions-workspace/route.ts",
-      "sha256": "49f675aa2415082e6c9a2621b4b7fdc799c840281a4d511b5cd264ea1c46ab42"
+      "sha256": "22ae8cff585e9054f4e13339c86c610cacff3b46ba6cffd5f74ae4ffb88ba459"
     },
     {
       "path": "app/api/meta/entity-role-declarations/route.ts",
@@ -884,7 +884,7 @@
     },
     {
       "path": "docs/architecture/native-retained-reader-ledger.json",
-      "sha256": "51d1ff153ff47dfca9dcd33f90b9bcdc9c2ae04185959b86a8f05a83516a3fc3"
+      "sha256": "354b0cc34029dbca42b3655c1af78f0476c29273da3fec7e527f6ea931edeceb"
     },
     {
       "path": "docs/architecture/native-retained-reader-lifecycle.md",
@@ -928,7 +928,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "285c656eda2928e37b9cd60b05058e3e4242a8a7fb4a0ed835f092c106e66097"
+      "sha256": "711c74de69d9fceebb3ce6ae4162aacfb678b3f2d2681f2dfae0a10f0a7c33d8"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -940,7 +940,7 @@
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
-      "sha256": "c387e3fd7eed387cfc8b6656326450e1854533a840781eec935ab07022c7ac80"
+      "sha256": "16a18b4737d8260ed9db2c65bcf441dba4c9d0bcf50e40bd44e9bc9984ddf61f"
     },
     {
       "path": "docs/creative-decision-center/V3_TO_V21_MAPPING.md",
@@ -3436,7 +3436,7 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/source-inventory.json",
-      "sha256": "c80cc0d85a81a59af7cc974f378162679974fe559497fd64a056be0f5cfdfcc7"
+      "sha256": "e55d847f797fc423b9683d408c2af6f842ce17dab20674bfb21ea1a9604f3b06"
     },
     {
       "path": "scripts/native-cold-lifecycle/types.ts",
@@ -3632,7 +3632,7 @@
     },
     {
       "path": "scripts/ops/install-native-cold-runtime.py",
-      "sha256": "7c3806b54d6a98f9f96f6ba85f8699b9076d70dccac4f07b91cb30d040ec0b53"
+      "sha256": "46fea8aa5cf38ee8d3ed683d393307fef351377c8d37ce852abe6c9ea50b281f"
     },
     {
       "path": "scripts/ops/install-native-cold-runtime.test.ts",

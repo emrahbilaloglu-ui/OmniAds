@@ -1,3 +1,4 @@
+import { runWithDbJitDisabled } from "@/lib/db-jit-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getIntegrationMetadata } from "@/lib/integrations";
@@ -327,7 +328,7 @@ function buildMetaRetentionTableEvidence(
   }));
 }
 
-export async function GET(request: NextRequest) {
+async function readMetaStatus(request: NextRequest) {
   const requestStartedAt = performance.now();
   const url = new URL(request.url);
   const businessId = url.searchParams.get("businessId");
@@ -2630,4 +2631,10 @@ export async function GET(request: NextRequest) {
     "Cache-Control": "no-store",
     "Server-Timing": `total;dur=${(performance.now() - requestStartedAt).toFixed(1)}`,
   } });
+}
+
+// Keep the existing bounded read graph in one lease-local scope. Other requests
+// retain their database setting; original queries and authority checks are unchanged.
+export async function GET(request: NextRequest) {
+  return runWithDbJitDisabled(() => readMetaStatus(request));
 }

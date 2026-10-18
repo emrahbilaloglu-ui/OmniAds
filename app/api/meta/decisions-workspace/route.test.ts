@@ -1,3 +1,4 @@
+import { isDbJitDisabledInScope } from "@/lib/db-jit-scope";
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
@@ -599,7 +600,12 @@ describe("GET /api/meta/decisions-workspace", () => {
     metaApiMock.fetchMetaActiveAdConfigsReceipt.mockResolvedValue({
       complete: true, termination: "complete", rows: [],
     });
-    upstreamRouteMock.accountPulseGet.mockResolvedValue(jsonResponse(metaPulse()));
+    upstreamRouteMock.accountPulseGet.mockImplementationOnce(async () => {
+      expect(isDbJitDisabledInScope()).toBe(true);
+      await Promise.resolve();
+      expect(isDbJitDisabledInScope()).toBe(true);
+      return jsonResponse(metaPulse());
+    });
     upstreamRouteMock.laneClassificationGet.mockResolvedValue(jsonResponse(metaLanePayload()));
     let releaseDate!: (rows: Array<{ latest_as_of: string }>) => void;
     let dateStarted!: () => void;
@@ -608,6 +614,7 @@ describe("GET /api/meta/decisions-workspace", () => {
     const sql = mockDigestSql();
     Object.assign(sql, { query: vi.fn(async (query: string) => {
       if (query.includes("candidate_dates AS")) {
+        expect(isDbJitDisabledInScope()).toBe(true);
         dateStarted();
         return pendingDate;
       }
@@ -617,6 +624,8 @@ describe("GET /api/meta/decisions-workspace", () => {
       "http://localhost/api/meta/decisions-workspace?businessId=biz_1&providerAccountId=act_1&surface=os&startDate=2026-07-01&endDate=2026-07-07&window=7d",
     ));
     await started;
+    // An overlapping caller outside GET must not inherit its request scope.
+    expect(isDbJitDisabledInScope()).toBe(false);
     try {
       await vi.waitFor(() => {
         expect(upstreamRouteMock.accountPulseGet).toHaveBeenCalledTimes(1);
@@ -627,6 +636,7 @@ describe("GET /api/meta/decisions-workspace", () => {
     }
     const response = await responsePending;
     expect(response.status).toBe(200);
+    expect(isDbJitDisabledInScope()).toBe(false);
     expect(readModelMock.readMetaDecisionsWorkspaceReadModel).toHaveBeenCalledWith(
       expect.objectContaining({ asOfDate: "2026-07-08" }),
     );

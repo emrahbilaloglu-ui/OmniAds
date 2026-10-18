@@ -1,3 +1,4 @@
+import { isDbJitDisabledInScope } from "@/lib/db-jit-scope";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readDbGrowthFenceObservation } from "@/lib/sync/db-growth-fence";
 
@@ -255,6 +256,13 @@ function getUtcTodayIso() {
 
 describe("GET /api/meta/status", () => {
   it("keeps provider freshness separate from a proven shared process waiting on another provider", async () => {
+    vi.mocked(readDbGrowthFenceObservation).mockImplementationOnce(async () => {
+      expect(isDbJitDisabledInScope()).toBe(true);
+      await Promise.resolve();
+      expect(isDbJitDisabledInScope()).toBe(true);
+      return { allowed: true, reason: "ready", evaluatedAt: new Date().toISOString() } as never;
+    });
+    expect(isDbJitDisabledInScope()).toBe(false);
     const providerAt = "2026-04-13T11:50:00.000Z";
     const processAt = "2026-04-13T11:59:50.000Z";
     vi.mocked(workerHealth.getProviderWorkerHealthState).mockResolvedValueOnce({
@@ -271,6 +279,7 @@ describe("GET /api/meta/status", () => {
       businessWorker: { workerId: null, lastHeartbeatAt: null, freshnessState: null },
       sharedProcess: { lastHeartbeatAt: processAt, waitingForProviderTurn: true } });
     expect(body.completionBlockers).not.toContain("operations_worker_offline");
+    expect(isDbJitDisabledInScope()).toBe(false);
   });
   it("exposes refused admission and disables work repair without hiding healthy worker evidence", async () => {
     vi.mocked(workerHealth.getProviderWorkerHealthState).mockResolvedValueOnce({ workerHealthy: true, heartbeatAgeMs: 1_000, consumeStage: "capacity_refused" } as never);

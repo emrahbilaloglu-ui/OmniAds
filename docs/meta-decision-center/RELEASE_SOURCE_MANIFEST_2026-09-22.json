@@ -1,5 +1,5 @@
 {
-  "manifestHash": "e9c281145e581f6b9dcbbbb30b4df2dba83c1be3b496381572af28cd8bd764ff",
+  "manifestHash": "7e6d8168ec36530fa92869ebd1d6abd4f24309e12ae1ab4d6ea6c417c96bf9bc",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -928,7 +928,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "9d0787792e6dd26fc35ecfb53eb742513892b56d822388a0c6ef933219ad47f8"
+      "sha256": "57ba0ab169b7d39ef2fd0fec0d17552173a32de9f43631c652bc2a3659030caf"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -1120,7 +1120,7 @@
     },
     {
       "path": "lib/business-deletion.db.test.ts",
-      "sha256": "6fcf56d7e47469546e064447ac50ef49397554ce6f6c1fe8ccde3b1379026d5c"
+      "sha256": "e338df971b77cf22efc5fd19c8d450084d4bba134c57e9d9ae2e1737c8a4d431"
     },
     {
       "path": "lib/business-deletion.ts",

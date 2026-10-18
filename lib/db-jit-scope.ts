@@ -19,7 +19,15 @@ import { AsyncLocalStorage } from "node:async_hooks";
   This lives outside `lib/db.ts` on purpose: modules that mock `@/lib/db` in
   tests still get the real scope, so callers need no test-side stubs.
 */
-const dbJitDisabledScope = new AsyncLocalStorage<true>();
+// Next emits separate copies of this module for different route graphs, while
+// lib/db.ts caches its executors on globalThis. The executor created by one
+// graph must see a scope entered by another. Share the storage identity only;
+// its boolean remains local to the current async request, not to the process.
+const globalScope = globalThis as typeof globalThis & {
+  __omniadsDbJitDisabledScopeV1?: AsyncLocalStorage<true>;
+};
+const dbJitDisabledScope =
+  (globalScope.__omniadsDbJitDisabledScopeV1 ??= new AsyncLocalStorage<true>());
 
 export function runWithDbJitDisabled<T>(fn: () => Promise<T>): Promise<T> {
   return dbJitDisabledScope.run(true, fn);

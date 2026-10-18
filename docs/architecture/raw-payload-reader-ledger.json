@@ -1,6 +1,6 @@
 {
   "contract": "raw-payload-reader-ledger.v1",
-  "review": "D178: physical owner decoder only. Original identity, query scope, clocks, metric parsing and provider authority remain unchanged. SELECT-star candidates in replay are resolved at their final payload projection; metadata-only queries confer no payload-read authority. New literal readers or changed bytes require review. Dynamic writer/decoder SQL is separately closed in raw-payload-storage and raw-payload-compaction. D180 changes only exact daily fact coverage aggregation in warehouse.ts; all five original raw payload decoders, scope, identity and clocks remain unchanged. D181 uses exact point-day metadata witnesses for breakdown coverage, preserving original unlinked fetched raw identity/account/window conditions and all five payload decoders.",
+  "review": "D178: physical owner decoder only. Original identity, query scope, clocks, metric parsing and provider authority remain unchanged. SELECT-star candidates in replay are resolved at their final payload projection; metadata-only queries confer no payload-read authority. New literal readers or changed bytes require review. Dynamic writer/decoder SQL is separately closed in raw-payload-storage and raw-payload-compaction. D180 changes only exact daily fact coverage aggregation in warehouse.ts; all five original raw payload decoders, scope, identity and clocks remain unchanged. D181 uses exact point-day metadata witnesses for breakdown coverage, preserving original unlinked fetched raw identity/account/window conditions and all five payload decoders. D182 changes only the lease-local JIT scope around unchanged daily coverage SQL in warehouse.ts. All five raw payload decoder queries, input bindings, original bytes and writer/admission behavior are unchanged.",
   "entries": [
     {
       "path": "lib/meta/ad-day-provider-zero-receipt.ts",
@@ -19,7 +19,7 @@
     },
     {
       "path": "lib/meta/warehouse.ts",
-      "sha256": "f8f50f514c0d6ea3a2a3fc4b680ff6038f3a934e701e8f8cfd9d4a0b0f14124f",
+      "sha256": "057f3a1a5a86e5af3d028af68f33e152659897e7e636b2870ea98893f6698662",
       "readers": 5
     },
     {

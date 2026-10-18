@@ -6,6 +6,7 @@ import { getCurrentSchedulingAttemptId } from "@/lib/sync/scheduling-attempt";
 import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
 import { META_PRODUCT_CORE_COVERAGE_SCOPES } from "@/lib/meta/core-config";
 import { getDb, getDbWithTimeout, runDbTransaction } from "@/lib/db";
+import { runWithDbJitDisabled } from "@/lib/db-jit-scope";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import {
   ensureProviderAccountReferenceBindings,
@@ -7563,7 +7564,10 @@ async function getMetaCoverageForTable(input: {
     "meta_coverage",
   );
   const sql = input.timeoutMs ? getDbWithTimeout(input.timeoutMs) : getDb();
-  const [rows, partitionRows] = await Promise.all([
+  // These bounded point-day reads pay LLVM compilation on historical windows
+  // despite doing little execution work. Keep the existing lease-local scope;
+  // unrelated reporting queries retain the server's normal setting.
+  const [rows, partitionRows] = await runWithDbJitDisabled(() => Promise.all([
     sql.query(
       `
         -- Exact per-day aggregates keep the existing business/date index useful
@@ -7620,7 +7624,7 @@ async function getMetaCoverageForTable(input: {
         input.providerAccountId ?? null,
       ]
     ) as Promise<Array<Record<string, unknown>>>,
-  ]);
+  ]));
   const row = rows[0] ?? {};
   const partitionRow = partitionRows[0] ?? {};
   const firstCompletedDate =

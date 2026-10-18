@@ -38,8 +38,8 @@
     },
     {
       "path": "app/api/meta/decisions-workspace/route.ts",
-      "sha256": "20a4c456518e9340dd8c3bd5aadd2eade7546ed8fb2dc796b4e411f9d9d693ce",
-      "bytes": 113740
+      "sha256": "62024823b84ec8fae4a18a047e0ed0a0530431819ad4b738233a3158e0e354b9",
+      "bytes": 114251
     },
     {
       "path": "app/api/meta/status/route.ts",
@@ -262,6 +262,11 @@
       "bytes": 46806
     },
     {
+      "path": "lib/db-jit-scope.ts",
+      "sha256": "31d1886f7b26e3799bcc5d5fb679a3db3a142fce8cc91f26f70f88704b9a2dea",
+      "bytes": 1867
+    },
+    {
       "path": "lib/db.ts",
       "sha256": "315860d12c3fc92da2f22ae6b84cdf3d4a40945750f3a4a61f1155d74f3798ec",
       "bytes": 40780
@@ -338,8 +343,8 @@
     },
     {
       "path": "lib/meta/warehouse.ts",
-      "sha256": "f8f50f514c0d6ea3a2a3fc4b680ff6038f3a934e701e8f8cfd9d4a0b0f14124f",
-      "bytes": 542284
+      "sha256": "057f3a1a5a86e5af3d028af68f33e152659897e7e636b2870ea98893f6698662",
+      "bytes": 542597
     },
     {
       "path": "lib/migration-verification.ts",
@@ -513,7 +518,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
-      "sha256": "33f6fb81035abde13279196d0bd724d1497099260679d300d622bd9f62e2f8ae",
+      "sha256": "0cb93e16ead0959e91bf6a090537fd9e284fa4f117cd585bd1a007f064bf20c7",
       "bytes": 171064
     },
     {
@@ -633,8 +638,8 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/inventory.ts",
-      "sha256": "eea1546be2b67ea2f44bd677bb56699b8d6b2a2e5c00febad2dd34593c6c301a",
-      "bytes": 4035
+      "sha256": "dba1259d73daf90ea202e2788bba3e11d64fc6b41f6804438646f5762dee274d",
+      "bytes": 4057
     },
     {
       "path": "scripts/native-cold-lifecycle/mirror-endpoint.py",
@@ -832,5 +837,5 @@
       "bytes": 4644
     }
   ],
-  "sourceInventorySha256": "39159d0e253f7c27bb12dc2238dad4235b6c987dd2e4a6dbdde0d7703cd85a3e"
+  "sourceInventorySha256": "eefba9f5eb41f8c5875489ead20165823aedb28638c00cce9684832259a61d6a"
 }

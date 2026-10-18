@@ -1561,6 +1561,36 @@ export async function GET(request: NextRequest) {
   const activeAdDecisions =
     compactOsSurface ||
     request.nextUrl.searchParams.get("activeAdDecisions") === "1";
+  // Metric dates are independent of the current decision generation. Start
+  // these authorised reads while the retained decision date is being resolved.
+  const metricsEndDate =
+    statedIsoDate(request.nextUrl.searchParams, "endDate") ?? previousUtcDate();
+  const params = workspaceParams(request.nextUrl.searchParams, metricsEndDate);
+  const upstreamsStartedAt = performance.now();
+  const loadUpstreams = () =>
+    Promise.all([
+      readInternalJson<MetaPulsePayload>(
+        request, "account-pulse", "/api/meta/account-pulse", params,
+      ),
+      readInternalJson<MetaLanePayload>(
+        request, "lane-classify", "/api/meta/lane-classify", params,
+      ),
+    ] as const);
+  const upstreamsPromise = (
+    process.env.VITEST === "true" || process.env.NODE_ENV === "test"
+      ? loadUpstreams()
+      : getCachedValue({
+          key: `meta-decisions-upstreams-v1:${params.toString()}`,
+          ttlMs: 30_000,
+          staleWhileRevalidateMs: 5 * 60_000,
+          loader: loadUpstreams,
+        }).then((cached) => cached.value)
+  ).then(
+    (value) => ({ ok: true as const, value, finishedAt: performance.now() }),
+    // Observe an early failure immediately; the existing response handler
+    // below still owns its error and never substitutes an empty success.
+    (error: unknown) => ({ ok: false as const, error }),
+  );
   const executionGovernancePromise = readEffectiveMetaWriteGovernance({
     businessId,
   });
@@ -1619,11 +1649,6 @@ export async function GET(request: NextRequest) {
       ? nativeDecisionJobMarker.asOfDate
       : cachedDecisionAsOfDate;
   const endDateResolvedAt = performance.now();
-  // Direct API callers without dates get the same completed-day metric window
-  // as the shell. A current-day decision may still be served over it.
-  const metricsEndDate =
-    statedIsoDate(request.nextUrl.searchParams, "endDate") ?? previousUtcDate();
-  const params = workspaceParams(request.nextUrl.searchParams, metricsEndDate);
   // The metric window and current decision date are deliberately independent.
   // Serve-time action authority is always revalidated against current
   // commercial truth (D045).
@@ -1960,32 +1985,9 @@ export async function GET(request: NextRequest) {
   });
 
   try {
-    const loadUpstreams = () =>
-      Promise.all([
-        readInternalJson<MetaPulsePayload>(
-          request,
-          "account-pulse",
-          "/api/meta/account-pulse",
-          params,
-        ),
-        readInternalJson<MetaLanePayload>(
-          request,
-          "lane-classify",
-          "/api/meta/lane-classify",
-          params,
-        ),
-      ] as const);
-    const [pulse, lanes] =
-      process.env.VITEST === "true" || process.env.NODE_ENV === "test"
-        ? await loadUpstreams()
-        : (
-            await getCachedValue({
-              key: `meta-decisions-upstreams-v1:${params.toString()}`,
-              ttlMs: 30_000,
-              staleWhileRevalidateMs: 5 * 60_000,
-              loader: loadUpstreams,
-            })
-          ).value;
+    const upstreams = await upstreamsPromise;
+    if (!upstreams.ok) throw upstreams.error;
+    const [pulse, lanes] = upstreams.value;
     const upstreamsCompletedAt = performance.now();
     const trackingBlocked = isTrackingBlocked(pulse);
     const scopedRecommendations = [
@@ -2652,6 +2654,7 @@ export async function GET(request: NextRequest) {
     const workspaceTimings = {
       resolveEndDateMs: endDateResolvedAt - requestStartedAt,
       upstreamsMs: upstreamsCompletedAt - endDateResolvedAt,
+      upstreamReadMs: upstreams.finishedAt - upstreamsStartedAt,
       currentAdsMs: currentAdsCompletedAt - endDateResolvedAt,
       decisionReadMs: decisionReadCompletedAt - endDateResolvedAt,
       decisionBundleMs: decisionBundleCompletedAt - upstreamsCompletedAt,
@@ -2661,6 +2664,7 @@ export async function GET(request: NextRequest) {
     const serverTiming = [
       `resolve_end_date;dur=${workspaceTimings.resolveEndDateMs.toFixed(1)}`,
       `upstreams;dur=${workspaceTimings.upstreamsMs.toFixed(1)}`,
+      `upstream_read;dur=${workspaceTimings.upstreamReadMs.toFixed(1)}`,
       `current_ads;dur=${workspaceTimings.currentAdsMs.toFixed(1)}`,
       `decision_read;dur=${workspaceTimings.decisionReadMs.toFixed(1)}`,
       `decision_bundle;dur=${workspaceTimings.decisionBundleMs.toFixed(1)}`,

@@ -23,8 +23,8 @@
     {
       "path": "app/api/meta/decisions-workspace/route.ts",
       "role": "serving-and-history",
-      "sha256": "20a4c456518e9340dd8c3bd5aadd2eade7546ed8fb2dc796b4e411f9d9d693ce",
-      "retention": "Keep every retained snapshot and its complete evaluation/context lineage across all dates, epochs and current winners; latest/episode/history/freshness access remains available. D180 bounds date lookup to retained IDs with exact canonical UUID/text business ownership before the unchanged cross-account ambiguity exclusion and native/legacy/job maximum date. All retained rows remain; contradictory ownership cannot set a current date. No native generation selection, hash, epoch or provider authority change."
+      "sha256": "62024823b84ec8fae4a18a047e0ed0a0530431819ad4b738233a3158e0e354b9",
+      "retention": "Keep every retained snapshot and its complete evaluation/context lineage across all dates, epochs and current winners; latest/episode/history/freshness access remains available. D180 bounds date lookup to retained IDs with exact canonical UUID/text business ownership before the unchanged cross-account ambiguity exclusion and native/legacy/job maximum date. All retained rows remain; contradictory ownership cannot set a current date. No native generation selection, hash, epoch or provider authority change. D182 starts the same authorised metric upstream reads alongside independent retained decision-date resolution, preserving exact metric params/cache keys, account/current-Ad/generation/role/commercial/governance checks and failure responses. Native SQL, generation date/identity, hashes, epochs and historical authority are unchanged."
     },
     {
       "path": "lib/business-archive-erasure.ts",
@@ -329,8 +329,8 @@
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
       "role": "owned-fixture",
-      "sha256": "33f6fb81035abde13279196d0bd724d1497099260679d300d622bd9f62e2f8ae",
-      "retention": "D174 registers all nine actual migrated archive-erasure cases, including durable multi-page tenant cleanup and exact orphan/shared/foreign-byte preservation. Other suites, physical gates, expected counts and rollback proofs remain unchanged. D175 marker regression sets and clears COMMENT only on the owned ephemeral database and calls the shipped shared-object marker reader. No retained-table selection, row mutations, pins, expected test counts or retention policy changed. D178: exact erasure-suite count is68 including the new application-level raw owner/alias erasure test; every prior negative and historical test remains required."
+      "sha256": "0cb93e16ead0959e91bf6a090537fd9e284fa4f117cd585bd1a007f064bf20c7",
+      "retention": "D174 registers all nine actual migrated archive-erasure cases, including durable multi-page tenant cleanup and exact orphan/shared/foreign-byte preservation. Other suites, physical gates, expected counts and rollback proofs remain unchanged. D175 marker regression sets and clears COMMENT only on the owned ephemeral database and calls the shipped shared-object marker reader. No retained-table selection, row mutations, pins, expected test counts or retention policy changed. D178: exact erasure-suite count is68 including the new application-level raw owner/alias erasure test; every prior negative and historical test remains required. D182 requires all six real JIT-scope seam tests, including the separately compiled scope over the cached executor; no test omission or production behavior change."
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
@@ -507,5 +507,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "d13320e86310fa2c9fc1bad835c0cc38b41561122a1ef4dcaaa68bf30a598211"
+  "sourceInventorySha256": "0ccd6e6b7fb6da91a4f12cbacecefb9312c768fa0a33948118efca8405c9032c"
 }

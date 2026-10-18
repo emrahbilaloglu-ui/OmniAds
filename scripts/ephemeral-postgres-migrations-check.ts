@@ -4381,7 +4381,7 @@ async function main() {
       ["lib/creative-decision-engine/profile-scope-callers-account-scope.db.test.ts", "Meta profile scope callers", 4],
       // Provisions its own logging cluster: proves the decision reads' backend
       // runs with jit=off, on the CI build that actually has LLVM JIT.
-      ["lib/creative-decision-engine/data-source.jit-scope.db.test.ts", "Creative decision read JIT scope", 5],
+      ["lib/creative-decision-engine/data-source.jit-scope.db.test.ts", "Creative decision read JIT scope", 6],
     ] as const) {
       await runChildVitest(repoRoot, databaseUrl, file, `${label} DB seam check`, count);
     }

@@ -354,32 +354,12 @@ async function readMetaStatus(request: NextRequest) {
   if (posture !== "live") return metaPostureUnavailable("meta_status");
   const buildResponse = async () => {
   const admissionRead = readDbGrowthFenceObservation({ queryTimeoutMs: 5_000 }).catch(() => null);
-  const [
-    integration,
-    assignments,
-    latestSync,
-    accountStats,
-    accountSnapshot,
-    legacyJobHealth,
-    workerHealth,
-    phaseTimings,
-    latestRetentionRun,
-    latestRetentionCanaryRun,
-    protectedPublishedTruthReview,
-    authoritativeSnapshot,
-    runtimeRegistry,
-    gateResult,
-    repairPlanResult,
-    latestRemediationExecution,
-    persistenceResult,
-    incidentSummaryResult,
-  ] =
-    await Promise.all([
-      getIntegrationMetadata(businessId!, "meta").catch(() => null),
-      getProviderAccountAssignments(businessId!, "meta").catch(() => null),
+  const integrationRead = getIntegrationMetadata(businessId!, "meta").catch(() => null);
+  const assignmentsRead = getProviderAccountAssignments(businessId!, "meta").catch(() => null);
+  const accountSnapshotRead = readProviderAccountSnapshot({ businessId: businessId!, provider: "meta" }).catch(() => null);
+  const operationalReads = Promise.all([
       getLatestMetaSyncHealth({ businessId: businessId!, providerAccountId: null }).catch(() => null),
       getMetaAccountDailyStats({ businessId: businessId!, providerAccountId: null }).catch(() => null),
-      readProviderAccountSnapshot({ businessId: businessId!, provider: "meta" }).catch(() => null),
       getMetaSyncJobHealth({ businessId: businessId! }).catch(() => null),
       getProviderWorkerHealthState({
         businessId: businessId!,
@@ -442,39 +422,11 @@ async function readMetaStatus(request: NextRequest) {
           error: error instanceof Error ? error.message : String(error),
         })),
     ]);
-  const gateRecords = gateResult.value;
-  const repairPlan = repairPlanResult.value;
-  const controlPlanePersistence = persistenceResult.value;
-  const incidentSummary = incidentSummaryResult.value;
-  const controlPlaneErrors = {
-    syncGates: gateResult.error,
-    repairPlan: repairPlanResult.error,
-    controlPlanePersistence: persistenceResult.error,
-    syncIncidents: incidentSummaryResult.error,
-  };
-  const retentionRuntime = getMetaRetentionRuntimeStatus();
-  const retentionCanaryRuntime = getMetaRetentionCanaryRuntimeStatus({
-    businessId: businessId!,
-  });
-  const latestRetentionRows = getMetaRetentionRunRows(latestRetentionRun);
-  const latestRetentionMetadata = getMetaRetentionRunMetadata(latestRetentionRun);
-  const latestRetentionSummary =
-    latestRetentionRows.length > 0
-      ? summarizeMetaRetentionRunRows(latestRetentionRows)
-      : null;
-  const latestRetentionTables = buildMetaRetentionTableEvidence(latestRetentionRows);
-  const latestRetentionCanaryRows = getMetaRetentionRunRows(latestRetentionCanaryRun);
-  const latestRetentionCanaryMetadata = getMetaRetentionRunMetadata(
-    latestRetentionCanaryRun,
-  );
-  const latestRetentionCanarySummary =
-    latestRetentionCanaryRows.length > 0
-      ? summarizeMetaRetentionRunRows(latestRetentionCanaryRows)
-      : null;
-  const latestRetentionCanaryTables = buildMetaRetentionTableEvidence(
-    latestRetentionCanaryRows,
-  );
-
+  // Observe early rejection; the original promise still owns the error below.
+  void operationalReads.catch(() => undefined);
+  const [integration, assignments, accountSnapshot] = await Promise.all([
+    integrationRead, assignmentsRead, accountSnapshotRead,
+  ]);
   const accountIds = assignments?.account_ids ?? [];
   const connected = Boolean(integration?.status === "connected");
   const primaryAccountId = accountIds[0] ?? null;
@@ -488,6 +440,20 @@ async function readMetaStatus(request: NextRequest) {
     providerAccountIds: accountIds,
     snapshot: accountSnapshot,
   }).catch(() => []);
+  // Start independent D1 verification while operational and coverage reads run.
+  const primaryBoundary =
+    platformDateBoundaryAccounts.find((account) => account.isPrimary) ??
+    platformDateBoundaryAccounts[0] ??
+    null;
+  const d1TargetDate = primaryBoundary?.previousDate ?? null;
+  const d1VerificationPromise =
+    primaryBoundary?.providerAccountId && d1TargetDate
+      ? getMetaAuthoritativeDayVerification({
+          businessId: businessId!,
+          providerAccountId: primaryBoundary.providerAccountId,
+          day: d1TargetDate,
+        }).catch(() => null)
+      : null;
   const currentDateInTimezone = getTodayIsoForTimeZoneServer(primaryAccountTimezone);
 
   const initialBackfillEnd = addDays(
@@ -530,8 +496,10 @@ async function readMetaStatus(request: NextRequest) {
     dayCountInclusive(recentWindowStart, initialBackfillEnd)
   );
 
-  const [accountCoverage, campaignCoverage, adsetCoverage, adDailyCoverage, creativeCoverage, creativePreviewCoverage, breakdownCoverageByEndpoint, historicalBreakdownCoverageByEndpoint, queueHealth, queueComposition, deadLetterRecoverySummary, checkpointHealth, recentAccountCoverage, recentCampaignCoverage, recentAdsetCoverage, recentCreativeCoverage, recentAdCoverage, ...stateRows] =
-      await Promise.all([
+  // Coverage needs account/date context, not the independent operational batch.
+  const [operationalResults, coverageResults] = await Promise.all([
+    operationalReads,
+    Promise.all([
           getMetaAccountDailyCoverage({
             businessId: businessId!,
             providerAccountId: null,
@@ -619,7 +587,58 @@ async function readMetaStatus(request: NextRequest) {
           ...META_STATE_SCOPES.map((scope) =>
             getMetaSyncState({ businessId: businessId!, scope }).catch(() => [])
           ),
-        ]);
+    ]),
+  ]);
+  const [
+    latestSync,
+    accountStats,
+    legacyJobHealth,
+    workerHealth,
+    phaseTimings,
+    latestRetentionRun,
+    latestRetentionCanaryRun,
+    protectedPublishedTruthReview,
+    authoritativeSnapshot,
+    runtimeRegistry,
+    gateResult,
+    repairPlanResult,
+    latestRemediationExecution,
+    persistenceResult,
+    incidentSummaryResult,
+    ] = operationalResults;
+  const [accountCoverage, campaignCoverage, adsetCoverage, adDailyCoverage, creativeCoverage, creativePreviewCoverage, breakdownCoverageByEndpoint, historicalBreakdownCoverageByEndpoint, queueHealth, queueComposition, deadLetterRecoverySummary, checkpointHealth, recentAccountCoverage, recentCampaignCoverage, recentAdsetCoverage, recentCreativeCoverage, recentAdCoverage, ...stateRows] = coverageResults;
+  const gateRecords = gateResult.value;
+  const repairPlan = repairPlanResult.value;
+  const controlPlanePersistence = persistenceResult.value;
+  const incidentSummary = incidentSummaryResult.value;
+  const controlPlaneErrors = {
+    syncGates: gateResult.error,
+    repairPlan: repairPlanResult.error,
+    controlPlanePersistence: persistenceResult.error,
+    syncIncidents: incidentSummaryResult.error,
+  };
+  const retentionRuntime = getMetaRetentionRuntimeStatus();
+  const retentionCanaryRuntime = getMetaRetentionCanaryRuntimeStatus({
+    businessId: businessId!,
+  });
+  const latestRetentionRows = getMetaRetentionRunRows(latestRetentionRun);
+  const latestRetentionMetadata = getMetaRetentionRunMetadata(latestRetentionRun);
+  const latestRetentionSummary =
+    latestRetentionRows.length > 0
+      ? summarizeMetaRetentionRunRows(latestRetentionRows)
+      : null;
+  const latestRetentionTables = buildMetaRetentionTableEvidence(latestRetentionRows);
+  const latestRetentionCanaryRows = getMetaRetentionRunRows(latestRetentionCanaryRun);
+  const latestRetentionCanaryMetadata = getMetaRetentionRunMetadata(
+    latestRetentionCanaryRun,
+  );
+  const latestRetentionCanarySummary =
+    latestRetentionCanaryRows.length > 0
+      ? summarizeMetaRetentionRunRows(latestRetentionCanaryRows)
+      : null;
+  const latestRetentionCanaryTables = buildMetaRetentionTableEvidence(
+    latestRetentionCanaryRows,
+  );
 
   const statesByScope = Object.fromEntries(
     META_STATE_SCOPES.map((scope, index) => [scope, stateRows[index] ?? []])
@@ -1964,19 +1983,7 @@ async function readMetaStatus(request: NextRequest) {
       new Set(platformDateBoundaryAccounts.map((account) => account.currentDate)).size > 1,
     accounts: platformDateBoundaryAccounts,
   };
-  const primaryBoundary =
-    platformDateBoundaryAccounts.find((account) => account.isPrimary) ??
-    platformDateBoundaryAccounts[0] ??
-    null;
-  const d1TargetDate = primaryBoundary?.previousDate ?? null;
-  const d1Verification =
-    primaryBoundary?.providerAccountId && d1TargetDate
-      ? await getMetaAuthoritativeDayVerification({
-          businessId: businessId!,
-          providerAccountId: primaryBoundary.providerAccountId,
-          day: d1TargetDate,
-        }).catch(() => null)
-      : null;
+  const d1Verification = await d1VerificationPromise;
   const d1FinalizeState =
     d1TargetDate == null
       ? null

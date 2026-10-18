@@ -1123,7 +1123,7 @@ async function readDecisionDigest(input: {
           COALESCE(snapshot.detected_at, snapshot.created_at)::text AS occurred_at
         FROM meta_decision_snapshots_daily snapshot
         WHERE snapshot.business_id = ${input.businessId}
-          AND COALESCE(snapshot.kind, 'recommendation') = 'anomaly'
+          AND snapshot.kind = 'anomaly'
           AND snapshot.scope_id = ANY(${input.entityIds}::text[])
           AND (${since}::timestamptz IS NULL OR COALESCE(snapshot.detected_at, snapshot.created_at) >= ${since}::timestamptz)
         ORDER BY COALESCE(snapshot.detected_at, snapshot.created_at) DESC

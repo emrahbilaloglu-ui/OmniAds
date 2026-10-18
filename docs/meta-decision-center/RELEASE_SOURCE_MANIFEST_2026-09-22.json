@@ -1,5 +1,5 @@
 {
-  "manifestHash": "b766ebf8ad32eb9e1725ad9a152e65fa639b67569fa70f6c00bebd7d6b26b5d8",
+  "manifestHash": "110c4483db7e5b844913effcf8b754669f34f8c7b62d401e422e090f6275223d",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -884,7 +884,7 @@
     },
     {
       "path": "docs/architecture/native-retained-reader-ledger.json",
-      "sha256": "ee5c8217b4f347904d98f6467021b05a6752262506c373ea77c5a2e1dac8318a"
+      "sha256": "f81cd3392632980b6f39aa59282e0560f9f7f86241d608e9f760922b7cf761fe"
     },
     {
       "path": "docs/architecture/native-retained-reader-lifecycle.md",
@@ -3156,7 +3156,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
-      "sha256": "33f6fb81035abde13279196d0bd724d1497099260679d300d622bd9f62e2f8ae"
+      "sha256": "0cb93e16ead0959e91bf6a090537fd9e284fa4f117cd585bd1a007f064bf20c7"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
@@ -3436,7 +3436,7 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/source-inventory.json",
-      "sha256": "2761d61e8542da7d8ef4e8a52f22d0200564aca547e272e3dd627e07f31f7d6f"
+      "sha256": "5f6b634d2ae9aeb89d892eebab57ea6db63e7147169419e0da6de48633d1726d"
     },
     {
       "path": "scripts/native-cold-lifecycle/types.ts",
@@ -3632,7 +3632,7 @@
     },
     {
       "path": "scripts/ops/install-native-cold-runtime.py",
-      "sha256": "2fc6f27ea74d11e16d578ebed0a42c856c9c3d538cb467acff78cab4724d3dfd"
+      "sha256": "113f49213eefe4f86768a25d68e392d3cd4e4a01add2d83c24e01d91d085a9d1"
     },
     {
       "path": "scripts/ops/install-native-cold-runtime.test.ts",

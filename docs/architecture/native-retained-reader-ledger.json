@@ -329,8 +329,8 @@
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
       "role": "owned-fixture",
-      "sha256": "33f6fb81035abde13279196d0bd724d1497099260679d300d622bd9f62e2f8ae",
-      "retention": "D174 registers all nine actual migrated archive-erasure cases, including durable multi-page tenant cleanup and exact orphan/shared/foreign-byte preservation. Other suites, physical gates, expected counts and rollback proofs remain unchanged. D175 marker regression sets and clears COMMENT only on the owned ephemeral database and calls the shipped shared-object marker reader. No retained-table selection, row mutations, pins, expected test counts or retention policy changed. D178: exact erasure-suite count is68 including the new application-level raw owner/alias erasure test; every prior negative and historical test remains required."
+      "sha256": "0cb93e16ead0959e91bf6a090537fd9e284fa4f117cd585bd1a007f064bf20c7",
+      "retention": "D174 registers all nine actual migrated archive-erasure cases, including durable multi-page tenant cleanup and exact orphan/shared/foreign-byte preservation. Other suites, physical gates, expected counts and rollback proofs remain unchanged. D175 marker regression sets and clears COMMENT only on the owned ephemeral database and calls the shipped shared-object marker reader. No retained-table selection, row mutations, pins, expected test counts or retention policy changed. D178: exact erasure-suite count is68 including the new application-level raw owner/alias erasure test; every prior negative and historical test remains required. D182 requires all six real JIT-scope seam tests, including the separately compiled scope over the cached executor; no test omission or production behavior change."
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
@@ -507,5 +507,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "5b70dd449862af0a56ae9024f1fb7ac86057a308daf8b39ce7887a438eb3bab8"
+  "sourceInventorySha256": "0ccd6e6b7fb6da91a4f12cbacecefb9312c768fa0a33948118efca8405c9032c"
 }

@@ -965,3 +965,7 @@ state FKs; the test does not disable those constraints to manufacture lineage.
 
 The exact closure ledger classifies this negative scope test; its scanner and
 all existing content-reader predicates remain enabled.
+
+
+### 2026-10-18 D193 owned capacity-proof reuse fixture
+`lib/sync/db-growth-fence.test.ts` 18 → 19 — TEST. The added literal classifies the existing state-history size query in a disposable PostgreSQL fixture while counting the complete metadata/state/native/raw proof. It serves no entity content, changes no production SQL and grants no authority. The exact-count guard remains enforced. First PRCI39134096168 caught the omitted classification; its original failure log remains retained.

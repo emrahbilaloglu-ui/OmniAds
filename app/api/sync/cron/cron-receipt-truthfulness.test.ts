@@ -51,7 +51,7 @@ describe("sync cron receipt", () => {
   it("still treats a genuine empty list as a success", () => {
     const branch = source.slice(
       source.indexOf("if (businesses.length === 0)"),
-      source.indexOf("const results = await Promise.allSettled"),
+      source.indexOf("const cronStartedAt = new Date()"),
     );
     expect(branch).toContain("ok: true");
     expect(branch).toContain("No active businesses.");

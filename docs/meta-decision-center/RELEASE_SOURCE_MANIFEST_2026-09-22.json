@@ -1,5 +1,5 @@
 {
-  "manifestHash": "5c2b008c9f1b5cfb3e35c59bc1cc9de4a2a237418f4fe47afc84411a112795a6",
+  "manifestHash": "14fc9fe7ed157081a36f21235018a1974159b96c33f91a495e483e3912551a09",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -224,11 +224,11 @@
     },
     {
       "path": "app/api/creatives/decision-engine-v3/evidence/route.test.ts",
-      "sha256": "01446ed11d6282db6434bc46c70d7b92b5387005f67e7d555c48b015387d6223"
+      "sha256": "f2ba8475001b94554e8a900385abf3207ac3079b30af4c25782a9140364d075a"
     },
     {
       "path": "app/api/creatives/decision-engine-v3/evidence/route.ts",
-      "sha256": "b9eb9237a03256398622a24a7c657731c6d36a187edb96a12ccfe9142e54c79f"
+      "sha256": "af192d98516a9940440d43631b0585b773fe967f99d252ab70d63f1797368395"
     },
     {
       "path": "app/api/launchpad/meta/adsets/route.test.ts",
@@ -383,12 +383,16 @@
       "sha256": "07cf353d58f4a6fa797028aeef478c735df65607a08823020f18248a8d9fbd27"
     },
     {
+      "path": "app/api/sync/cron/cron-receipt-truthfulness.test.ts",
+      "sha256": "270ed7f3ac6e616eb029da4caed6bfc18d2ecb4ed181e4d0ccfdde09217724f1"
+    },
+    {
       "path": "app/api/sync/cron/route.test.ts",
-      "sha256": "4981d3d9696b7c6c7d81ab8cb19b97a386a46a3dbd534354544936f2a643df7f"
+      "sha256": "24207b4217b76e58283eb52edd68145806b93f100cc0f804fafa53e5a113f015"
     },
     {
       "path": "app/api/sync/cron/route.ts",
-      "sha256": "394ae3a251a78dd41bc45df69f825849693c8f1f8036ce6d100324a911731dbe"
+      "sha256": "0b291d014a9f4764e0b2491860807677b9ef80011086d87f994931cfc9689997"
     },
     {
       "path": "app/c/[businessId]/creative/audiences/page.tsx",
@@ -884,7 +888,7 @@
     },
     {
       "path": "docs/architecture/native-retained-reader-ledger.json",
-      "sha256": "dc00c7fafd97455d24825113ae72de63dd6ea72ab36be55cf573c37ea5b54b1f"
+      "sha256": "0b72cddf46155cc6d95ab3da5844b80773cf62286a6445a192fdef1882435344"
     },
     {
       "path": "docs/architecture/native-retained-reader-lifecycle.md",
@@ -928,7 +932,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "62d717b7747072971363c9d77c4b6525b3500b4724c796122491d2826aa0e957"
+      "sha256": "3ea72c59771da5d16655f2fdb883f8b216c31dc2827f4e2d3d36bb2da3dc9240"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -940,7 +944,7 @@
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
-      "sha256": "38db3667435179d583c8d5c9f4e3eb3f24495ff133c83fa13edf936e0f80b75d"
+      "sha256": "5fbf2a0cd03f61396e27efc4c2f1579cfa81bd925b07237fa8956f6edb07ced8"
     },
     {
       "path": "docs/creative-decision-center/V3_TO_V21_MAPPING.md",
@@ -3436,7 +3440,7 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/source-inventory.json",
-      "sha256": "a55d0fa132e86a8af95e43362069b8b4e873468ec8e589c8ecd4b2f8ea03bf51"
+      "sha256": "0b4d6702d3471a46047d6e55cee8a8cbfab92e8c495f9747a0260722c2b1d28a"
     },
     {
       "path": "scripts/native-cold-lifecycle/types.ts",
@@ -3632,7 +3636,7 @@
     },
     {
       "path": "scripts/ops/install-native-cold-runtime.py",
-      "sha256": "e4ea24392a579232981bc4e7741b2383e7dc5060ba4b1102eb739698cd2e106c"
+      "sha256": "8dbf982fa39cb619120bfa9fc59ac415c056dd5fa4e263cbb458a3e9d617e605"
     },
     {
       "path": "scripts/ops/install-native-cold-runtime.test.ts",

@@ -11,8 +11,8 @@
     {
       "path": "app/api/creatives/decision-engine-v3/evidence/route.ts",
       "role": "serving-and-history",
-      "sha256": "b9eb9237a03256398622a24a7c657731c6d36a187edb96a12ccfe9142e54c79f",
-      "retention": "Keep every retained snapshot and its complete evaluation/context lineage across all dates, epochs and current winners; latest/episode/history/freshness access remains available. D177 applies private no-store uniformly to every returned response, including normal current and refused reads. Original reader selection, lineage SQL, row hashes, historical/current authority and status/body/Retry-After are unchanged; route regression tests cover their preservation. D180 uses the existing exact-Ad subset reader with full original account-manifest validation; absent ungenerated Ads remain 404, missing manifest members still refuse. Persisted lineage/hash and explicit historical/current authority are unchanged."
+      "sha256": "af192d98516a9940440d43631b0585b773fe967f99d252ab70d63f1797368395",
+      "retention": "Keep every retained snapshot and its complete evaluation/context lineage across all dates, epochs and current winners; latest/episode/history/freshness access remains available. D177 applies private no-store uniformly to every returned response, including normal current and refused reads. Original reader selection, lineage SQL, row hashes, historical/current authority and status/body/Retry-After are unchanged; route regression tests cover their preservation. D180 uses the existing exact-Ad subset reader with full original account-manifest validation; absent ungenerated Ads remain 404, missing manifest members still refuse. Persisted lineage/hash and explicit historical/current authority are unchanged. D192 adds request-local phase timing and slow-read pool/counter diagnostics only. Persisted SQL/hash/identity functions, semantic call arguments, current/historical status/body/Retry-After and private no-store remain unchanged. No JIT policy or provider authority change; the earlier 51s exact cause remains unknown."
     },
     {
       "path": "app/api/meta/creative-thumbnail/route.ts",
@@ -507,5 +507,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "42b7e2363aeb797913c9df21688fce553e309953828aafa87665818b1189efc1"
+  "sourceInventorySha256": "ce1e84db19e8906f71684f122b0bb6f7a158ad0fe668edfe82cac4923e32fecf"
 }

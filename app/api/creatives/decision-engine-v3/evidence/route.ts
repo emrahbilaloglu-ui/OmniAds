@@ -9,7 +9,8 @@ import {
   canonicalSha256,
   type CanonicalJsonObject,
 } from "@/lib/creative-decision-engine/canonical-evaluation";
-import { getDb } from "@/lib/db";
+import { getDb, getDbRuntimeDiagnostics } from "@/lib/db";
+import { logRuntimeWarn } from "@/lib/runtime-logging";
 import type { MetaCanonicalDecision } from "@/lib/meta/decisions-workspace-contract";
 import {
   readMetaNativeCanonicalDecisionInventory,
@@ -506,7 +507,20 @@ function evidenceRowMatches(input: {
   );
 }
 
-async function readEvidence(request: NextRequest): Promise<NextResponse> {
+async function timedEvidenceRead<T>(
+  timings: Record<string, number>,
+  phase: string,
+  read: () => Promise<T>,
+): Promise<T> {
+  const startedAt = performance.now();
+  try { return await read(); }
+  finally { timings[phase] = performance.now() - startedAt; }
+}
+
+async function readEvidence(
+  request: NextRequest,
+  timings: Record<string, number>,
+): Promise<NextResponse> {
   const url = new URL(request.url);
   const businessId = nonEmpty(url.searchParams.get("businessId"));
   const providerAccountId = nonEmpty(
@@ -540,15 +554,15 @@ async function readEvidence(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "adId required" }, { status: 400 });
   }
 
-  const access = await requireBusinessAccess({
+  const access = await timedEvidenceRead(timings, "access", () => requireBusinessAccess({
     request,
     businessId,
     minRole: historical ? "collaborator" : "guest",
-  });
+  }));
   if ("error" in access) return access.error;
   const resolvedBusinessId = access.membership.businessId;
 
-  const flags = await resolveEngineV3Flags(resolvedBusinessId);
+  const flags = await timedEvidenceRead(timings, "flags", () => resolveEngineV3Flags(resolvedBusinessId));
   if (!flags.enabled) {
     return NextResponse.json(
       {
@@ -561,14 +575,14 @@ async function readEvidence(request: NextRequest): Promise<NextResponse> {
   }
 
   if (historical) {
-    const result = await readNativeHistoricalAdEvidence({ generation: { businessId: resolvedBusinessId,
+    const result = await timedEvidenceRead(timings, "historical", () => readNativeHistoricalAdEvidence({ generation: { businessId: resolvedBusinessId,
       jobRunId: archiveJobRunId!, asOfDate: asOf!, engineVersion: historicalEngineVersion! },
-      providerAccountId, adId, evaluationId: evaluationId! });
+      providerAccountId, adId, evaluationId: evaluationId! }));
     return NextResponse.json(result, { status: result.status === "limited" ? 429 : result.status === "unavailable" ? 409 : 200,
       headers: { "Cache-Control": "private, no-store", ...(result.status === "limited" ? { "Retry-After": "60" } : {}) } });
   }
 
-  const inventory = await readMetaNativeCanonicalDecisionInventory({
+  const inventory = await timedEvidenceRead(timings, "inventory", () => readMetaNativeCanonicalDecisionInventory({
     businessId: resolvedBusinessId,
     providerAccountId,
     asOfDate: asOf,
@@ -578,7 +592,7 @@ async function readEvidence(request: NextRequest): Promise<NextResponse> {
     // A new Ad absent from a complete generation remains a 404. A manifest
     // member whose snapshot disappeared still fails the subset integrity gate.
     allowMissingProjectedAdIds: true,
-  });
+  }));
   if (inventory.status === "unavailable") {
     return NextResponse.json(
       {
@@ -625,13 +639,13 @@ async function readEvidence(request: NextRequest): Promise<NextResponse> {
 
   let rows: NativeDecisionEvidenceDbRow[];
   try {
-    rows = await readPersistedNativeEvidence({
+    rows = await timedEvidenceRead(timings, "persisted_read", () => readPersistedNativeEvidence({
       businessId: resolvedBusinessId,
       providerAccountId,
       adId,
       decision,
       generation: inventory.generation,
-    });
+    }));
   } catch {
     return NextResponse.json(
       {
@@ -657,16 +671,17 @@ async function readEvidence(request: NextRequest): Promise<NextResponse> {
     );
   }
   const row = rows[0]!;
-  if (
-    !evidenceRowMatches({
-      row,
-      decision,
-      generation: inventory.generation,
-      businessId: resolvedBusinessId,
-      providerAccountId,
-      adId,
-    })
-  ) {
+  const integrityStartedAt = performance.now();
+  const integrityMatches = evidenceRowMatches({
+    row,
+    decision,
+    generation: inventory.generation,
+    businessId: resolvedBusinessId,
+    providerAccountId,
+    adId,
+  });
+  timings.integrity = performance.now() - integrityStartedAt;
+  if (!integrityMatches) {
     return NextResponse.json(
       {
         status: "unavailable",
@@ -733,7 +748,20 @@ async function readEvidence(request: NextRequest): Promise<NextResponse> {
 /** Evidence is tenant-scoped and can change with the selected archive root.
  * Apply the same cache contract to current, historical and refused responses. */
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const response = await readEvidence(request);
+  const startedAt = performance.now();
+  const timings: Record<string, number> = {};
+  const response = await readEvidence(request, timings);
+  timings.total = performance.now() - startedAt;
   response.headers.set("Cache-Control", "private, no-store");
+  response.headers.set("Server-Timing", Object.entries(timings)
+    .map(([phase, duration]) => `${phase};dur=${duration.toFixed(1)}`).join(", "));
+  if (timings.total >= 2_000) {
+    const diagnostics = getDbRuntimeDiagnostics();
+    logRuntimeWarn("meta_decision_evidence", "slow_evidence_read", {
+      ...Object.fromEntries(Object.entries(timings).map(([phase, duration]) => [phase, Number(duration.toFixed(1))])),
+      dbPool: diagnostics.pool,
+      dbCounters: diagnostics.counters,
+    });
+  }
   return response;
 }

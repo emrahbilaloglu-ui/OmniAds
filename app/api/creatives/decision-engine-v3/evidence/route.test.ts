@@ -7,7 +7,8 @@ import {
   type EngineV3Flags,
 } from "@/lib/creative-decision-engine/feature-flags";
 import { canonicalSha256 } from "@/lib/creative-decision-engine/canonical-evaluation";
-import { getDb } from "@/lib/db";
+import { getDb, getDbRuntimeDiagnostics } from "@/lib/db";
+import { logRuntimeWarn } from "@/lib/runtime-logging";
 import type { MetaCanonicalDecision } from "@/lib/meta/decisions-workspace-contract";
 import { readMetaNativeCanonicalDecisionInventory } from "@/lib/meta/decisions-workspace-read-model";
 import { readNativeHistoricalAdEvidence } from "@/lib/creative-decision-engine/native-historical-archive-reader";
@@ -17,7 +18,8 @@ vi.mock("@/lib/access", () => ({ requireBusinessAccess: vi.fn() }));
 vi.mock("@/lib/creative-decision-engine/feature-flags", () => ({
   resolveEngineV3Flags: vi.fn(),
 }));
-vi.mock("@/lib/db", () => ({ getDb: vi.fn() }));
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(), getDbRuntimeDiagnostics: vi.fn() }));
+vi.mock("@/lib/runtime-logging",()=>({logRuntimeWarn:vi.fn()}));
 vi.mock("@/lib/meta/decisions-workspace-read-model", () => ({
   readMetaNativeCanonicalDecisionInventory: vi.fn(),
 }));
@@ -714,6 +716,7 @@ describe("all evidence responses forbid caching",()=>{
     if(kind==="bad_input")expectedStatus=400;
     const response=await GET(new NextRequest(kind==="bad_input"?url.replace("adId=ad-1","adId="):url));
     expect(response.status).toBe(expectedStatus);expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(response.headers.get("server-timing")).toMatch(/total;dur=[0-9.]+/);
     const body=await response.json();
     if(kind==="current_success")expect(body).toMatchObject({status:"available",lineage:{status:"verified"}});
     if(kind==="current_refusal")expect(body.reason).toBe("native_account_receipt_cardinality_invalid");
@@ -721,4 +724,20 @@ describe("all evidence responses forbid caching",()=>{
     if(kind==="bad_input")expect(body).toEqual({error:"adId required"});
     if(kind==="access_refusal"){expect(body).toEqual({error:"denied"});expect(response.headers.get("X-Access-Proof")).toBe("preserved");}
   });
+  it("reports slow evidence phases and pool counters without logging persisted evidence", async()=>{
+    const clock=vi.spyOn(performance,"now").mockReturnValue(0);
+    const dbPool={max:10,totalCount:10,idleCount:0,waitingCount:2},dbCounters={retryAttemptCount:3,timeoutCount:1};
+    vi.mocked(getDbRuntimeDiagnostics).mockReturnValue({pool:dbPool,counters:dbCounters} as never);
+    query.mockImplementation(async()=>{clock.mockReturnValue(3000);return [evidenceRow()];});
+    try{
+      const response=await GET(new NextRequest(url));
+      expect(response.status).toBe(200);
+      expect(response.headers.get("server-timing")).toContain("persisted_read;dur=3000.0");
+      expect(logRuntimeWarn).toHaveBeenCalledWith("meta_decision_evidence","slow_evidence_read",{
+        access:0,flags:0,inventory:0,persisted_read:3000,integrity:0,total:3000,dbPool,dbCounters,
+      });
+      expect(await response.json()).toMatchObject({status:"available",lineage:{status:"verified"}});
+    }finally{clock.mockRestore();}
+  });
+
 });

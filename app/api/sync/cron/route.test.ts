@@ -1539,4 +1539,78 @@ describe("POST /api/sync/cron Google Ads freshness receipt", () => {
     expect(response.status).toBe(503);
     expect(cronFreshness.readGoogleAdsFreshness).not.toHaveBeenCalled();
   });
+  it("finishes each business before starting the next, preserving lane failures and receipt order", async () => {
+    const businesses = ["biz_1","biz_2","biz_3"].map(id=>({id,name:id}));
+    vi.mocked(activeBusinesses.readActiveBusinesses).mockResolvedValue({ok:true,businesses} as never);
+    const deferred = () => {
+      let resolve!:()=>void;
+      const promise=new Promise<void>(done=>{resolve=done;});
+      return {promise,resolve};
+    };
+    const gates=businesses.map(deferred),freshnessGate=deferred(),started:string[]=[];
+    vi.mocked(googleSync.enqueueGoogleAdsScheduledWork).mockImplementation(async id=>{
+      started.push(id);await gates[businesses.findIndex(b=>b.id===id)]!.promise;
+      if(id==="biz_2")throw new Error("owned lane failure");
+      return {queued:1} as never;
+    });
+    cronFreshness.readGoogleAdsFreshness.mockImplementation(async(input:{businessId:string})=>{
+      if(input.businessId==="biz_1")await freshnessGate.promise;
+      return buildCronSnapshot({businessId:input.businessId,totalDays:14,coveredDays:14,postCloseObservedDays:14,lookbackExhaustedDays:14});
+    });
+    const pending=POST(cronRequest());
+    try {
+      await vi.waitFor(()=>expect(started).toContain("biz_1"));
+      expect(started).toEqual(["biz_1"]);
+      gates[0]!.resolve();
+      await vi.waitFor(()=>expect(cronFreshness.readGoogleAdsFreshness).toHaveBeenCalled());
+      expect(started).toEqual(["biz_1"]);
+      freshnessGate.resolve();
+      await vi.waitFor(()=>expect(started).toEqual(["biz_1","biz_2"]));
+      gates[1]!.resolve();
+      await vi.waitFor(()=>expect(started).toEqual(["biz_1","biz_2","biz_3"]));
+      gates[2]!.resolve();
+      const response=await pending,payload=await response.json();
+      expect(payload.results.map((row:{businessId:string})=>row.businessId)).toEqual(businesses.map(b=>b.id));
+      expect(payload.results[1].laneFailures).toContainEqual({lane:"googleAds",message:"owned lane failure"});
+      expect(metaSync.enqueueMetaScheduledWork).toHaveBeenCalledTimes(3);
+      expect(searchConsoleSync.syncSearchConsoleReports).toHaveBeenCalledTimes(3);
+      expect(cronFreshness.readGoogleAdsFreshness).toHaveBeenCalledTimes(3);
+    } finally {
+      gates.forEach(g=>g.resolve());freshnessGate.resolve();await pending;
+    }
+  });
+
+  it.runIf(process.env.ADSECUTE_CRON_FAIRNESS_OWNED_PG==="1")("keeps a foreground SELECT responsive during the actual cron handler on owned PostgreSQL", async () => {
+    const url=new URL(process.env.DATABASE_URL!);
+    expect(url.hostname).toBe("127.0.0.1");
+    expect(url.pathname).toBe("/adsecute_cron_fairness");
+    expect([5432,15432]).not.toContain(Number(url.port));
+    const {Pool}=await import("pg"),pool=new Pool({connectionString:url.href,max:10,ssl:false});
+    const businesses=Array.from({length:12},(_,i)=>({id:"owned_"+i,name:"Owned "+i}));
+    vi.mocked(activeBusinesses.readActiveBusinesses).mockResolvedValue({ok:true,businesses} as never);
+    process.env.SHOPIFY_SYNC_ENABLED="true";
+    let lanes=0,peakWaiting=0;
+    const lane=async()=>{
+      lanes++;const work=pool.query("SELECT pg_sleep(0.08)");peakWaiting=Math.max(peakWaiting,pool.waitingCount);
+      await work;return {queued:1,synced:true,attempted:1,succeeded:1,failed:0} as never;
+    };
+    vi.mocked(googleSync.enqueueGoogleAdsScheduledWork).mockImplementation(lane);
+    vi.mocked(ga4Sync.syncGA4Reports).mockImplementation(lane);
+    vi.mocked(searchConsoleSync.syncSearchConsoleReports).mockImplementation(lane);
+    vi.mocked(metaSync.enqueueMetaScheduledWork).mockImplementation(lane);
+    vi.mocked(shopifySync.syncShopifyCommerceReports).mockImplementation(lane);
+    vi.mocked(klaviyoSync.syncKlaviyoFlowMetrics).mockImplementation(lane);
+    await pool.query("SELECT 1");
+    const pending=POST(cronRequest());
+    try {
+      await vi.waitFor(()=>expect(lanes).toBeGreaterThanOrEqual(6),{interval:1});
+      const began=performance.now();await pool.query("SELECT 1");const foregroundMs=performance.now()-began;
+      const response=await pending,payload=await response.json();
+      console.log("owned-cron-fairness",JSON.stringify({foregroundMs,peakWaiting,lanes,businesses:payload.results.length,ownedOnly:true,actualHandler:true,productionAccess:false}));
+      expect(lanes).toBe(72);expect(payload.results).toHaveLength(12);
+      expect(foregroundMs).toBeLessThan(180);
+      expect(peakWaiting).toBeLessThanOrEqual(6);
+    } finally {await pending;await pool.end();}
+  });
+
 });

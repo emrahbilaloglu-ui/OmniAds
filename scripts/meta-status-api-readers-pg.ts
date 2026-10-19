@@ -45,12 +45,12 @@ function routeSql(file: string, functionName: string) {
   return queries;
 }
 
-function actualMetadataIndexSql() {
+function actualMetadataIndexSql(name = "idx_meta_decision_snapshots_daily_business_kind_created") {
   const source = ts.createSourceFile("lib/migrations.ts", readFileSync("lib/migrations.ts", "utf8"), ts.ScriptTarget.Latest, true);
   const matches: string[] = [];
   function walk(node: ts.Node) {
     if (ts.isTaggedTemplateExpression(node) && ts.isNoSubstitutionTemplateLiteral(node.template) &&
-        node.template.text.includes("CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meta_decision_snapshots_daily_business_kind_created")) {
+        node.template.text.includes("CREATE INDEX CONCURRENTLY IF NOT EXISTS " + name)) {
       matches.push(node.template.text);
     }
     ts.forEachChild(node, walk);
@@ -59,6 +59,77 @@ function actualMetadataIndexSql() {
   // The real key/order is executed on an owned TEMP table. PostgreSQL cannot
   // build a TEMP index concurrently or run CONCURRENTLY inside this fixture TX.
   return matches[0]!.replace(" CONCURRENTLY", "");
+}
+
+/** The unchanged production LATERAL, with the actual additive migration. */
+export async function verifyNativeMediaProjectionIndexPg(
+  db: Pick<DbClient, "query">, business: string, foreign: string,
+) {
+  const indexName = "idx_meta_creative_media_owner_creative_latest";
+  // Fail before any fixture work when the migration is missing or ambiguous.
+  const ddl = actualMetadataIndexSql(indexName);
+  let nativeSql = "";
+  await readNativeSnapshotRows({ businessId: business, providerAccountId: "act-a",
+    generation: { jobRunId: "d1970000-0000-4000-8000-000000000001", asOfDate: "2026-01-15",
+      providerAccountRefId: "d1970000-0000-4000-8000-000000000002", manifestHash: "a".repeat(64), expectedAdCount: 80 },
+    adIds: ["owned-ad"],
+  }, { query: async (text) => { nativeSql = text; return []; } });
+  const join = nativeSql.match(/    LEFT JOIN LATERAL \(\n      SELECT source\.\*[\s\S]*?\) media ON TRUE/)?.[0];
+  assert(join, "execute the actual native media lookup");
+  const sql = `WITH snapshots AS (SELECT unnest($3::text[]) creative_id)
+    SELECT snapshot.creative_id,media.date::text,media.updated_at::text,media.preview_url,media.payload_json
+    FROM snapshots snapshot ${join} ORDER BY snapshot.creative_id NULLS LAST`;
+  await db.query(`CREATE TEMP TABLE meta_creative_media (
+    id serial PRIMARY KEY,business_id text NOT NULL,provider_account_id text NOT NULL,
+    creative_id text NOT NULL,ad_id text,date date NOT NULL,updated_at timestamptz,
+    preview_url text,payload_json jsonb NOT NULL DEFAULT '{}'::jsonb) ON COMMIT DROP;
+    CREATE INDEX idx_meta_creative_media_creative ON meta_creative_media(creative_id,date DESC);
+    CREATE UNIQUE INDEX idx_meta_creative_media_ad_grain ON meta_creative_media
+      (business_id,provider_account_id,date,creative_id,(COALESCE(ad_id,'')));`);
+  await db.query(`INSERT INTO meta_creative_media
+    (business_id,provider_account_id,creative_id,ad_id,date,updated_at,preview_url,payload_json)
+    SELECT $1,'act-a','creative-'||g,'ad-'||g,'2026-01-01'::date+d,
+      '2026-01-01'::timestamptz+d*interval '1 day','day-'||d,jsonb_build_object('day',d)
+    FROM generate_series(0,79) g CROSS JOIN generate_series(0,60) d`, [business]);
+  await db.query(`INSERT INTO meta_creative_media
+    (business_id,provider_account_id,creative_id,ad_id,date,updated_at,preview_url) VALUES
+    ($1,'act-a','creative-0','variant','2026-03-02','2026-05-01','latest-update'),
+    ($1,'act-a','creative-1','null-update','2026-03-02',NULL,'null-first'),
+    ($1,'act-a','creative-2','old-day','2026-01-01','2099-01-01','old-day-new-update'),
+    ($2,'act-a','creative-0','foreign','2035-01-01','2035-01-01','foreign-owner'),
+    ($1,'act-b','creative-1','foreign','2035-01-01','2035-01-01','foreign-account'),
+    ($1,'act-a','future-media','future','2035-01-01','2035-01-01','latest-without-asof-cap')`, [business, foreign]);
+  await db.query(`INSERT INTO meta_creative_media
+    (business_id,provider_account_id,creative_id,ad_id,date,updated_at,preview_url)
+    SELECT $1,'act-a','decoy-'||g,'decoy-'||g,'2026-03-02','2026-03-02','foreign-decoy'
+    FROM generate_series(1,20000) g`, [foreign]);
+  await db.query("ANALYZE meta_creative_media");
+  const ids = [...Array.from({ length: 80 }, (_, n) => `creative-${n}`), "missing", "future-media", null];
+  const params = [business, "act-a", ids];
+  const before = await db.query(sql, params);
+  assert.equal(before.length, 83);
+  const byId = Object.fromEntries(before.map(row => [row.creative_id, row]));
+  assert.equal(byId["creative-0"]!.preview_url, "latest-update");
+  assert.equal(byId["creative-1"]!.preview_url, "null-first");
+  assert.equal(byId["creative-2"]!.preview_url, "day-60");
+  assert.equal(byId["future-media"]!.preview_url, "latest-without-asof-cap");
+  assert.equal(byId.missing!.date, null);
+  await db.query(ddl);
+  assert.deepEqual(await db.query(sql, params), before,
+    "adding the access path must preserve every projected media value");
+  const [explain] = await db.query("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON, TIMING OFF) " + sql, params);
+  const nodes: Record<string, unknown>[] = [];
+  const walk = (node: Record<string, unknown>) => {
+    nodes.push(node); for (const child of (node.Plans ?? []) as Record<string, unknown>[]) walk(child);
+  };
+  walk(explain!["QUERY PLAN"][0].Plan);
+  const reads = nodes.filter(node => node["Index Name"] === indexName);
+  assert(reads.length > 0, "the unchanged actual lookup must use the covering owner/creative/order path");
+  assert(reads.every(node => Number(node["Actual Rows"]) <= 1 &&
+    ["business_id", "provider_account_id", "creative_id"].every(key => String(node["Index Cond"]).includes(key))));
+  assert(!nodes.some(node => node["Node Type"] === "Sort" && node["Sort Key"] &&
+    String(node["Sort Key"]).includes("source.date")), "no historical-media sort per creative");
+  console.log("[native-media-index-owned] PASS unchanged actual lookup / actual migration: 80x61 history,20k decoys, owner/account isolation, missing/null, date-before-update, DESC null order; <=1 indexed media row/creative");
 }
 
 export async function verifyMetaStatusApiReadersPg(client: Client) {
@@ -196,6 +267,7 @@ export async function verifyMetaStatusApiReadersPg(client: Client) {
       .every((node) => Number(node["Actual Rows"]) <= 4));
 
     await verifyNativeCurrencyProjectionPg(db, business, foreign);
+    await verifyNativeMediaProjectionIndexPg(db, business, foreign);
 
     await db.query(`INSERT INTO meta_adset_daily VALUES
       ($1,'act-a','2026-01-01','2026-01-10'),($1,'act-a','2026-01-01','2026-01-11'),

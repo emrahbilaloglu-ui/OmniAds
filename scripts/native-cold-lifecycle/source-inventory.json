@@ -358,8 +358,8 @@
     },
     {
       "path": "lib/migrations.ts",
-      "sha256": "2699ede83955d3a82250056ad5781824fcfdabeb9e6933f22a65bb260560b5df",
-      "bytes": 852304
+      "sha256": "b295622bd827d35e76b82b3d9a170fd52e7d518e726cde055c03968361470289",
+      "bytes": 853041
     },
     {
       "path": "lib/native-cold-erasure.ts",
@@ -558,8 +558,8 @@
     },
     {
       "path": "scripts/meta-status-api-readers-pg.ts",
-      "sha256": "28c6fa92019b49f7cde10950d0e6c0d9b40c2ab0a9cacd3f009a3c74063ecb54",
-      "bytes": 31148
+      "sha256": "e8bbb39db7f86a656d2e37ed438241c8dc367be073a08fbbe4dc783575bdcca0",
+      "bytes": 36323
     },
     {
       "path": "scripts/meta/creative-day-source-evidence-repair.ts",
@@ -842,5 +842,5 @@
       "bytes": 4644
     }
   ],
-  "sourceInventorySha256": "a2e6085197dda5b85c25a2a0aa4cf2df560965944ab1cd64f217120646df9971"
+  "sourceInventorySha256": "44317ec712f6ca03196e481fac95a3762121ad2288012c89a7843be49dbad603"
 }

@@ -2,6 +2,11 @@
 
 This is the first file future GPT/Codex/Claude chats should read before working on the Adsecute / OmniAds Creative page migration.
 
+For the exact latest-media lookup's additive owner/creative/order index, read
+[D197](DECISION_LOG.md#d197--cover-the-unchanged-native-media-lookup-by-owner-creative-and-latest-order-2026-10-19).
+The index is a bounded schema addition; first public latency and new final-build
+production remain independent live acceptance gates.
+
 For a slow native workspace read whose subphase is not yet attributable,
 read [D196](DECISION_LOG.md#d196--observe-native-serving-subphases-without-changing-decision-reads-2026-10-18).
 Scalar Server-Timing is diagnostic only; it does not relax first-request acceptance.

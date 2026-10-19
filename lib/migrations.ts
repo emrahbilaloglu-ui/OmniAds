@@ -10257,6 +10257,15 @@ export async function runMigrations(options?: {
           ),
           sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_media_creative
           ON meta_creative_media (creative_id, date DESC)`.catch(() => {}),
+          // D197: the native workspace already asks for this exact latest-row
+          // order. Cover its owner predicates too, so LIMIT 1 need not fetch
+          // and sort every historical media row of each requested creative.
+          sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meta_creative_media_owner_creative_latest
+          ON meta_creative_media (business_id, provider_account_id, creative_id, date DESC, updated_at DESC)`,
+          sql.query(buildIndexContractQuery({
+            indexName: "idx_meta_creative_media_owner_creative_latest",
+            definitionMustContain: [" ON public.meta_creative_media USING btree (business_id, provider_account_id, creative_id, date DESC, updated_at DESC)"],
+          })),
           sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_media_image_hash
           ON meta_creative_media (business_id, provider_account_id, image_hash)
           WHERE image_hash IS NOT NULL`.catch(() => {}),
